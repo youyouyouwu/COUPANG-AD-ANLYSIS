@@ -86,13 +86,36 @@ if uploaded_files:
         }).reset_index()
         product_totals = calculate_metrics(product_totals)
 
-        # --- 5. 顶部指标卡片 ---
+        # --- 5. 侧边栏功能区 (新增按商品编码筛选) ---
+        st.sidebar.header("🔍 数据筛选")
+        
+        # 搜索框
+        search_query = st.sidebar.text_input("按商品编码查询 (如: C0002)", "").strip().upper()
+        
+        # 盈亏单选框
+        status_filter = st.sidebar.radio("选择显示范围：", ["全部", "盈利", "亏损"])
+        
+        # 逻辑合并筛选
+        valid_p_df = product_totals.copy()
+        
+        # 盈亏过滤
+        if status_filter == "盈利":
+            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] >= valid_p_df['目标指标']]
+        elif status_filter == "亏损":
+            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] < valid_p_df['目标指标']]
+            
+        # 搜索框过滤
+        if search_query:
+            valid_p_df = valid_p_df[valid_p_df['产品编号'].str.contains(search_query, na=False)]
+            
+        valid_p = valid_p_df['产品编号'].tolist()
+
+        # --- 6. 顶部指标卡片 ---
         t_spent = product_totals['真实支出'].sum()
         t_sales = product_totals['销售额'].sum()
         t_clicks = product_totals['点击量'].sum()
         t_views = product_totals['展示量'].sum()
 
-        # 计算产品 SKU 分布
         total_skus = len(product_totals)
         win_skus = len(product_totals[product_totals['真实ROAS'] >= product_totals['目标指标']])
         loss_skus = total_skus - win_skus
@@ -111,15 +134,6 @@ if uploaded_files:
         col_p1.metric("📊 广告产品总数", f"{total_skus} 款")
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
-
-        # --- 6. 侧边栏筛选器 ---
-        st.sidebar.header("📊 盈亏筛选器")
-        status_filter = st.sidebar.radio("选择范围：", ["全部", "盈利", "亏损"])
-        valid_p = product_totals['产品编号'].tolist()
-        if status_filter == "盈利":
-            valid_p = product_totals[product_totals['真实ROAS'] >= product_totals['目标指标']]['产品编号'].tolist()
-        elif status_filter == "亏损":
-            valid_p = product_totals[product_totals['真实ROAS'] < product_totals['目标指标']]['产品编号'].tolist()
 
         # --- 7. 样式引擎 (深红/墨绿逻辑) ---
         unique_p = product_totals['产品编号'].unique()
