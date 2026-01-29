@@ -6,7 +6,7 @@ import plotly.express as px
 st.set_page_config(page_title="LxU 广告全维度看板", layout="wide")
 
 st.title("🚀 LxU 广告全维度看板")
-st.markdown("集成指标：**真实ROAS、真实CPC、点击率、转化率、目标指标(%)**。排序：非搜置顶，手动词按支出降序。")
+st.markdown("集成指标：**真实ROAS、真实CPC、点击率、转化率、目标指标(%)**。")
 
 # 1. 文件上传
 uploaded_files = st.file_uploader("批量上传广告报表", type=['csv', 'xlsx'], accept_multiple_files=True)
@@ -66,11 +66,6 @@ if uploaded_files:
         analysis_df.loc[mask_ns, '策略日期'] = '汇总'
 
         # 4. 聚合与指标计算
-        kw_summary = analysis_df.groupby(['产品编号', '展示版面', '关键词', '目标指标', '策略日期']).agg({
-            '展示量': 'sum', '点击量': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum'
-        }).reset_index()
-
-        # 计算核心指标函数
         def calculate_metrics(df):
             df['真实支出'] = (df['原支出'] * 1.1).round(0)
             df['真实ROAS'] = (df['销售额'] / df['真实支出'] * 100).round(2)
@@ -79,6 +74,9 @@ if uploaded_files:
             df['转化率'] = (df['销量'] / df['点击量'] * 100).round(2)
             return df.replace([float('inf'), -float('inf')], 0).fillna(0)
 
+        kw_summary = analysis_df.groupby(['产品编号', '展示版面', '关键词', '目标指标', '策略日期']).agg({
+            '展示量': 'sum', '点击量': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum'
+        }).reset_index()
         kw_summary = calculate_metrics(kw_summary)
 
         # 产品级汇总
@@ -87,89 +85,84 @@ if uploaded_files:
         }).reset_index()
         product_totals = calculate_metrics(product_totals)
 
-        # --- 5. 顶层大盘看板 ---
-        t_spent, t_sales = product_totals['真实支出'].sum(), product_totals['销售额'].sum()
-        t_clicks, t_views = product_totals['点击量'].sum(), product_totals['展示量'].sum()
-        t_orders = product_totals['销量'].sum()
+        # --- 5. 侧边栏筛选器 ---
+        st.sidebar.header("📊 盈亏筛选器")
+        status_filter = st.sidebar.radio(
+            "选择查看范围：",
+            ["全部展示", "只看广告盈利 (ROAS达标)", "只看广告亏损 (ROAS不达标)"]
+        )
 
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("📦 总消耗", f"₩{t_spent:,.0f}")
-        m2.metric("💰 总销售额", f"₩{t_sales:,.0f}")
-        m3.metric("📈 ROAS", f"{(t_sales/t_spent*100):.2f}%" if t_spent>0 else "0%")
-        m4.metric("🖱️ CPC", f"₩{(t_spent/t_clicks):.0f}" if t_clicks>0 else "0")
-        m5.metric("🎯 点击率", f"{(t_clicks/t_views*100):.2f}%" if t_views>0 else "0%")
-        m6.metric("🛒 转化率", f"{(t_orders/t_clicks*100):.2f}%" if t_clicks>0 else "0%")
+        # 根据产品总计确定过滤名单
+        if status_filter == "只看广告盈利 (ROAS达标)":
+            valid_p_codes = product_totals[product_totals['真实ROAS'] >= product_totals['目标指标']]['产品编号'].tolist()
+        elif status_filter == "只看广告亏损 (ROAS不达标)":
+            valid_p_codes = product_totals[product_totals['真实ROAS'] < product_totals['目标指标']]['产品编号'].tolist()
+        else:
+            valid_p_codes = product_totals['产品编号'].tolist()
 
-        # --- 6. 详细分析表 ---
+        # 执行过滤
+        product_totals_filtered = product_totals[product_totals['产品编号'].isin(valid_p_codes)]
+        kw_summary_filtered = kw_summary[kw_summary['产品编号'].isin(valid_p_codes)]
+
+        # --- 6. 顶层大盘看板 (显示过滤后的汇总) ---
+        t_spent = product_totals_filtered['真实支出'].sum()
+        t_sales = product_totals_filtered['销售额'].sum()
+        t_clicks = product_totals_filtered['点击量'].sum()
+        t_views = product_totals_filtered['展示量'].sum()
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("📦 筛选后总消耗", f"₩{t_spent:,.0f}")
+        m2.metric("💰 筛选后总销售额", f"₩{t_sales:,.0f}")
+        m3.metric("📈 筛选平均 ROAS", f"{(t_sales/t_spent*100):.2f}%" if t_spent>0 else "0%")
+        m4.metric("🖱️ 筛选平均 CPC", f"₩{(t_spent/t_clicks):.0f}" if t_clicks>0 else "0")
+
+        # --- 7. 详细分析表 ---
         st.divider()
         tab1, tab2 = st.tabs(["🎯 产品对比看板 (汇总)", "📄 关键词详细明细 (下钻)"])
 
-        unique_p = product_totals['产品编号'].unique()
+        unique_p = product_totals_filtered['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
         def apply_styles(row, mode='detailed'):
-            base_color = p_color_map.get(row['产品编号'], '#ffffff')
+            p_code = row['产品编号']
+            base_color = p_color_map.get(p_code, '#ffffff')
             is_total = (row['维度'] == '📌 产品总计') if mode=='area' else (row['sort_weight'] == 2)
             if is_total: return ['background-color: #e8f4ea; font-weight: bold; border-top: 2px solid #ccc'] * len(row)
             is_ns = (row['维度'] == '🤖 非搜索区域') if mode=='area' else (row['sort_weight'] == 0)
             if is_ns: return [f'background-color: {base_color}; color: #0056b3; font-weight: 500'] * len(row)
             return [f'background-color: {base_color}'] * len(row)
 
-        # 映射表用于支出占比计算
-        p_spend_map = product_totals.set_index('产品编号')['真实支出']
+        p_spend_map = product_totals_filtered.set_index('产品编号')['真实支出']
 
         with tab1:
-            kw_summary['维度'] = kw_summary['关键词'].apply(lambda x: '🤖 非搜索区域' if '非搜索' in x else '🔎 搜索区域')
-            area_df = kw_summary.groupby(['产品编号', '维度']).agg({'展示量': 'sum', '点击量': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum', '目标指标': 'max'}).reset_index()
+            kw_summary_filtered['维度'] = kw_summary_filtered['关键词'].apply(lambda x: '🤖 非搜索区域' if '非搜索' in x else '🔎 搜索区域')
+            area_df = kw_summary_filtered.groupby(['产品编号', '维度']).agg({'展示量': 'sum', '点击量': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum', '目标指标': 'max'}).reset_index()
             area_df = calculate_metrics(area_df)
+            area_df['支出占比'] = area_df.apply(lambda x: (x['真实支出'] / p_spend_map[x['产品编号']] * 100) if x['产品编号'] in p_spend_map else 0, axis=1).round(1)
             
-            # 计算对比看板的支出占比
-            area_df['支出占比'] = area_df.apply(lambda x: (x['真实支出'] / p_spend_map[x['产品编号']] * 100), axis=1).round(1)
-            
-            p_sub = product_totals.copy(); p_sub['维度'] = '📌 产品总计'
+            p_sub = product_totals_filtered.copy(); p_sub['维度'] = '📌 产品总计'
             p_sub['支出占比'] = 100.0
             
             compare_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
             
             st.dataframe(compare_df.style.apply(lambda r: apply_styles(r, 'area'), axis=1), 
-                         column_config={
-                             "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), 
-                             "点击率": st.column_config.NumberColumn(format="%.2f%%"), 
-                             "转化率": st.column_config.NumberColumn(format="%.2f%%"), 
-                             "目标指标": st.column_config.NumberColumn(format="%d%%"),
-                             "真实支出": st.column_config.NumberColumn(format="₩%d"), 
-                             "真实CPC": st.column_config.NumberColumn(format="₩%d"),
-                             "支出占比": st.column_config.NumberColumn(format="%.1f%%")
-                         },
+                         column_config={"真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), "点击率": st.column_config.NumberColumn(format="%.2f%%"), "转化率": st.column_config.NumberColumn(format="%.2f%%"), "目标指标": st.column_config.NumberColumn(format="%d%%"), "真实支出": st.column_config.NumberColumn(format="₩%d"), "真实CPC": st.column_config.NumberColumn(format="₩%d"), "支出占比": st.column_config.NumberColumn(format="%.1f%%")},
                          hide_index=True, use_container_width=True)
 
         with tab2:
-            kw_summary['sort_weight'] = kw_summary['关键词'].apply(lambda x: 0 if '非搜索' in x else 1)
+            kw_summary_filtered['sort_weight'] = kw_summary_filtered['关键词'].apply(lambda x: 0 if '非搜索' in x else 1)
             det_sub = p_sub.rename(columns={'维度': '关键词'})
             det_sub['展示版面'], det_sub['策略日期'], det_sub['sort_weight'] = '📌 总计', 'TOTAL', 2
             
-            detailed_final = pd.concat([kw_summary, det_sub], ignore_index=True)
+            detailed_final = pd.concat([kw_summary_filtered, det_sub], ignore_index=True)
             detailed_final = detailed_final.sort_values(['产品编号', 'sort_weight', '真实支出'], ascending=[True, True, False])
-            
-            # 关键词明细的占比逻辑保持不变
             detailed_final['支出占比'] = detailed_final.apply(lambda x: (x['真实支出'] / p_spend_map[x['产品编号']] * 100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
 
-            st.dataframe(
-                detailed_final.style.apply(lambda r: apply_styles(r, 'detailed'), axis=1),
-                column_config={
-                    "sort_weight": None, "维度": None, 
-                    "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
-                    "点击率": st.column_config.NumberColumn(format="%.2f%%"),
-                    "转化率": st.column_config.NumberColumn(format="%.2f%%"),
-                    "目标指标": st.column_config.NumberColumn(format="%d%%"),
-                    "真实支出": st.column_config.NumberColumn(format="₩%d"), 
-                    "真实CPC": st.column_config.NumberColumn(format="₩%d"),
-                    "支出占比": st.column_config.NumberColumn(format="%.1f%%")
-                },
-                hide_index=True, use_container_width=True, height=1000
-            )
+            st.dataframe(detailed_final.style.apply(lambda r: apply_styles(r, 'detailed'), axis=1),
+                column_config={"sort_weight": None, "维度": None, "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), "点击率": st.column_config.NumberColumn(format="%.2f%%"), "转化率": st.column_config.NumberColumn(format="%.2f%%"), "目标指标": st.column_config.NumberColumn(format="%d%%"), "真实支出": st.column_config.NumberColumn(format="₩%d"), "真实CPC": st.column_config.NumberColumn(format="₩%d"), "支出占比": st.column_config.NumberColumn(format="%.1f%%")},
+                hide_index=True, use_container_width=True, height=1000)
 
         csv_data = detailed_final.to_csv(index=False).encode('utf-8-sig')
-        st.sidebar.download_button("📥 下载完整报告", csv_data, "LxU_Full_Report.csv", "text/csv")
+        st.sidebar.download_button("📥 下载已筛选报告", csv_data, "LxU_Filtered_Report.csv", "text/csv")
 else:
-    st.info("👋 请上传报表。")
+    st.info("👋 请上传广告报表。")
