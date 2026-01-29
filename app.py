@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 import re
 
-st.set_page_config(page_title="LxU 广告区域对比分析", layout="wide")
+st.set_page_config(page_title="LxU 广告全维度分析", layout="wide")
 
-st.title("📊 产品搜索 vs 非搜索对比分析")
-st.markdown("该页面将每个产品的**手动搜索词总和**与**系统非搜索区域**进行并列对比。")
+st.title("📊 LxU 广告数据全维度看板")
+st.markdown("已集成：**对比看板**、**关键词明细**、**智能诊断**。")
 
-uploaded_files = st.file_uploader("批量上传报表", type=['csv', 'xlsx'], accept_multiple_files=True)
+uploaded_files = st.file_uploader("批量上传广告报表", type=['csv', 'xlsx'], accept_multiple_files=True)
 
 if uploaded_files:
     all_data = []
@@ -22,7 +22,7 @@ if uploaded_files:
     if all_data:
         raw_df = pd.concat(all_data, ignore_index=True)
 
-        # 1. 提取属性
+        # 1. 提取核心属性
         def extract_info(row):
             camp_name, grp_name = str(row.iloc[5]), str(row.iloc[6])
             full_text = f"{camp_name} {grp_name}"
@@ -30,63 +30,81 @@ if uploaded_files:
             p_code = p_code.group(0).upper() if p_code else "未识别"
             target_match = re.search(r'【(\d+)】', full_text)
             target_val = int(target_match.group(1)) if target_match else 0
-            return pd.Series([p_code, target_val])
+            date_match = re.search(r'【(\d{1,2}\.\d{1,2})】', full_text)
+            mod_date = date_match.group(1) if date_match else "汇总"
+            return pd.Series([p_code, target_val, mod_date])
 
-        raw_df[['产品编号', '目标指标']] = raw_df.apply(extract_info, axis=1)
+        raw_df[['产品编号', '目标指标', '策略日期']] = raw_df.apply(extract_info, axis=1)
 
-        # 2. 清洗逻辑
+        # 2. 数据清洗与对齐
         analysis_df = raw_df.copy()
-        # 统一识别非搜索
-        mask_ns = (analysis_df.iloc[:, 12].isna()) | (analysis_df.iloc[:, 11].str.contains('비검색|非搜索', na=False))
+        # 统一非搜索标记
+        mask_ns = (analysis_df.iloc[:, 12].isna()) | (analysis_df.iloc[:, 11].str.contains('비검색|非搜索', na=False)) | (analysis_df.iloc[:, 12].astype(str) == 'nan')
         
-        # 核心分类：将所有流量归为“搜索区域”或“非搜索区域”
-        analysis_df['对比维度'] = '🔎 搜索区域(手动)'
-        analysis_df.loc[mask_ns, '对比维度'] = '🤖 非搜索区域(自动)'
+        analysis_df['展示版面'] = analysis_df.iloc[:, 11].astype(str).str.strip()
+        analysis_df['关键词'] = analysis_df.iloc[:, 12].astype(str).str.strip()
         
+        # 强制归一化非搜索项
+        analysis_df.loc[mask_ns, '展示版面'] = '🤖 非搜索区域'
+        analysis_df.loc[mask_ns, '关键词'] = '🤖 非搜索区域'
+        analysis_df.loc[mask_ns, '策略日期'] = '汇总'
+
         analysis_df = analysis_df.rename(columns={
             analysis_df.columns[13]: '展示', analysis_df.columns[14]: '点击',
-            analysis_df.columns[15]: '原支出', analysis_df.columns[32]: '销售额'
+            analysis_df.columns[15]: '原支出', analysis_df.columns[29]: '销量', analysis_df.columns[32]: '销售额'
         })
 
-        # 3. 产品维度对比聚合
-        area_comparison = analysis_df.groupby(['产品编号', '对比维度']).agg({
-            '展示': 'sum', '点击': 'sum', '原支出': 'sum', '销售额': 'sum', '目标指标': 'max'
+        # 3. 聚合计算 (关键词级)
+        kw_summary = analysis_df.groupby(['产品编号', '展示版面', '关键词', '目标指标', '策略日期']).agg({
+            '展示': 'sum', '点击': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum'
         }).reset_index()
 
-        # 计算对比指标
-        area_comparison['真实支出'] = (area_comparison['原支出'] * 1.1).round(0)
-        area_comparison['真实ROAS'] = (area_comparison['销售额'] / area_comparison['真实支出'] * 100).round(2)
-        area_comparison['点击率'] = (area_comparison['点击'] / area_comparison['展示'] * 100).round(2)
-        
-        # 计算该产品内部的支出占比
-        area_comparison['支出占比'] = (area_comparison['真实支出'] / area_comparison.groupby('产品编号')['真实支出'].transform('sum') * 100).round(1)
+        kw_summary['真实支出'] = (kw_summary['原支出'] * 1.1).round(0)
+        kw_summary['真实ROAS'] = (kw_summary['销售额'] / kw_summary['真实支出'] * 100).round(2)
+        kw_summary['支出占比'] = (kw_summary['真实支出'] / kw_summary.groupby('产品编号')['真实支出'].transform('sum') * 100).round(1)
+        kw_summary = kw_summary.replace([float('inf'), -float('inf')], 0).fillna(0)
 
-        # 4. 界面展示
-        st.subheader("🎯 产品级：搜索 vs 非搜索 对比看板")
-        
-        # 侧边栏筛选特定产品查看
-        p_list = st.sidebar.multiselect("选择要对比的产品", options=area_comparison['产品编号'].unique())
-        display_compare = area_comparison[area_comparison['产品编号'].isin(p_list)] if p_list else area_comparison
+        # 4. 聚合计算 (产品对比级)
+        # 将流量简单分为两类
+        kw_summary['对比维度'] = kw_summary['关键词'].apply(lambda x: '🤖 非搜索区域' if '非搜索' in x else '🔎 搜索区域(手动)')
+        area_summary = kw_summary.groupby(['产品编号', '对比维度']).agg({
+            '展示': 'sum', '点击': 'sum', '真实支出': 'sum', '销售额': 'sum', '目标指标': 'max'
+        }).reset_index()
+        area_summary['真实ROAS'] = (area_summary['销售额'] / area_summary['真实支出'] * 100).round(2)
+        area_summary['支出占比'] = (area_summary['真实支出'] / area_summary.groupby('产品编号')['真实支出'].transform('sum') * 100).round(1)
 
-        st.dataframe(
-            display_compare,
-            column_config={
-                "支出占比": st.column_config.NumberColumn("支出占比", format="%.1f%%"),
-                "真实ROAS": st.column_config.NumberColumn("真实ROAS", format="%.2f%%"),
-                "点击率": st.column_config.NumberColumn("点击率", format="%.2f%%"),
-                "真实支出": st.column_config.NumberColumn("真实支出", format="₩%d"),
-                "销售额": st.column_config.NumberColumn("销售额", format="₩%d"),
-                "目标指标": st.column_config.NumberColumn("目标指标", format="%d%%")
-            },
-            hide_index=True, use_container_width=True
-        )
+        # --- 界面展示 (Tabs 布局) ---
+        tab1, tab2 = st.tabs(["🎯 产品级对比看板", "📄 关键词明细表"])
 
-        # 可视化对比
-        if p_list and len(p_list) == 1:
-            st.info(f"正在分析产品 {p_list[0]} 的流量构成")
-            st.bar_chart(display_compare.set_index('对比维度')['支出占比'])
+        with tab1:
+            st.subheader("搜索 vs 非搜索 流量构成对比")
+            st.dataframe(
+                area_summary,
+                column_config={
+                    "支出占比": st.column_config.NumberColumn(format="%.1f%%"),
+                    "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
+                    "真实支出": st.column_config.NumberColumn(format="₩%d"),
+                    "销售额": st.column_config.NumberColumn(format="₩%d"),
+                    "目标指标": st.column_config.NumberColumn(format="%d%%")
+                },
+                hide_index=True, use_container_width=True
+            )
 
-        st.divider()
-        st.subheader("📄 关键词明细（包含汇总后的非搜索行）")
-        st.caption("注：此表显示具体的关键词表现，非搜索区域已自动合并为一行。")
-        # 此处可以放置之前的明细 summary 表代码...
+        with tab2:
+            st.subheader("全周期关键词表现明细")
+            st.dataframe(
+                kw_summary.drop(columns=['对比维度']),
+                column_config={
+                    "支出占比": st.column_config.NumberColumn(format="%.1f%%"),
+                    "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
+                    "真实支出": st.column_config.NumberColumn(format="₩%d"),
+                    "目标指标": st.column_config.NumberColumn(format="%d%%")
+                },
+                hide_index=True, use_container_width=True
+            )
+
+        # 导出汇总数据
+        csv = kw_summary.to_csv(index=False).encode('utf-8-sig')
+        st.sidebar.download_button("📥 下载完整分析报告", csv, "LxU_Full_Analysis.csv", "text/csv")
+else:
+    st.info("👋 请上传广告报表开始分析。")
