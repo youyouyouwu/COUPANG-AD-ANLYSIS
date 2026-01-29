@@ -6,7 +6,7 @@ import plotly.express as px
 st.set_page_config(page_title="LxU 广告全维度看板", layout="wide")
 
 st.title("🚀 LxU 广告全维度看板")
-st.markdown("集成指标：**真实ROAS、真实CPC、点击率、转化率**。排序：非搜置顶，手动词按支出降序。")
+st.markdown("集成指标：**真实ROAS、真实CPC、点击率、转化率、目标指标(%)**。排序：非搜置顶，手动词按支出降序。")
 
 # 1. 文件上传
 uploaded_files = st.file_uploader("批量上传广告报表", type=['csv', 'xlsx'], accept_multiple_files=True)
@@ -123,7 +123,14 @@ if uploaded_files:
             compare_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
             
             st.dataframe(compare_df.style.apply(lambda r: apply_styles(r, 'area'), axis=1), 
-                         column_config={"真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), "点击率": st.column_config.NumberColumn(format="%.2f%%"), "转化率": st.column_config.NumberColumn(format="%.2f%%"), "真实支出": st.column_config.NumberColumn(format="₩%d"), "真实CPC": st.column_config.NumberColumn(format="₩%d")},
+                         column_config={
+                             "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), 
+                             "点击率": st.column_config.NumberColumn(format="%.2f%%"), 
+                             "转化率": st.column_config.NumberColumn(format="%.2f%%"), 
+                             "目标指标": st.column_config.NumberColumn(format="%d%%"),
+                             "真实支出": st.column_config.NumberColumn(format="₩%d"), 
+                             "真实CPC": st.column_config.NumberColumn(format="₩%d")
+                         },
                          hide_index=True, use_container_width=True)
 
         with tab2:
@@ -144,6 +151,7 @@ if uploaded_files:
                     "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
                     "点击率": st.column_config.NumberColumn(format="%.2f%%"),
                     "转化率": st.column_config.NumberColumn(format="%.2f%%"),
+                    "目标指标": st.column_config.NumberColumn(format="%d%%"),
                     "真实支出": st.column_config.NumberColumn(format="₩%d"), 
                     "真实CPC": st.column_config.NumberColumn(format="₩%d"),
                     "支出占比": st.column_config.NumberColumn(format="%.1f%%")
@@ -154,4 +162,4 @@ if uploaded_files:
         csv_data = detailed_final.to_csv(index=False).encode('utf-8-sig')
         st.sidebar.download_button("📥 下载完整报告", csv_data, "LxU_Full_Report.csv", "text/csv")
 else:
-    st.info("👋 请上传广告报表进行分析。")
+    st.info("👋 请上传报表。")
