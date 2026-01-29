@@ -66,13 +66,13 @@ if uploaded_files:
         analysis_df.loc[mask_ns, '维度'] = '🤖 非搜索区域'
         analysis_df.loc[mask_ns, '策略日期'] = '汇总'
 
-        # 4. 指标计算
+        # 4. 指标计算 (改名点：广告真实支出)
         def calculate_metrics(df):
             df['展示量'] = df['展示量'].round(0).fillna(0).astype(int)
             df['点击量'] = df['点击量'].round(0).fillna(0).astype(int)
-            df['真实支出'] = (df['原支出'] * 1.1).round(0).fillna(0).astype(int)
-            df['真实ROAS'] = (df['销售额'] / df['真实支出'] * 100).round(2)
-            df['真实CPC'] = (df['真实支出'] / df['点击量']).round(0).fillna(0).astype(int)
+            df['广告真实支出'] = (df['原支出'] * 1.1).round(0).fillna(0).astype(int)
+            df['真实ROAS'] = (df['销售额'] / df['广告真实支出'] * 100).round(2)
+            df['真实CPC'] = (df['广告真实支出'] / df['点击量']).round(0).fillna(0).astype(int)
             df['点击率'] = (df['点击量'] / df['展示量'] * 100).round(2)
             df['转化率'] = (df['销量'] / df['点击量'] * 100).round(2)
             return df.replace([float('inf'), -float('inf')], 0).fillna(0)
@@ -87,22 +87,8 @@ if uploaded_files:
         }).reset_index()
         product_totals = calculate_metrics(product_totals)
 
-        # --- 5. 侧边栏功能区 ---
-        st.sidebar.header("🔍 数据筛选")
-        search_query = st.sidebar.text_input("按商品编码查询 (如: C0002)", "").strip().upper()
-        status_filter = st.sidebar.radio("选择显示范围：", ["全部", "盈利", "亏损"])
-        
-        valid_p_df = product_totals.copy()
-        if status_filter == "盈利":
-            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] >= valid_p_df['目标指标']]
-        elif status_filter == "亏损":
-            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] < valid_p_df['目标指标']]
-        if search_query:
-            valid_p_df = valid_p_df[valid_p_df['产品编号'].str.contains(search_query, na=False)]
-        valid_p = valid_p_df['产品编号'].tolist()
-
-        # --- 6. 顶部指标卡片 ---
-        t_spent = product_totals['真实支出'].sum()
+        # --- 5. 顶部财务卡片 ---
+        t_spent = product_totals['广告真实支出'].sum()
         t_sales = product_totals['销售额'].sum()
         t_clicks = product_totals['点击量'].sum()
         t_views = product_totals['展示量'].sum()
@@ -125,6 +111,20 @@ if uploaded_files:
         col_p1.metric("📊 广告产品总数", f"{total_skus} 款")
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
+
+        # --- 6. 侧边栏功能区 ---
+        st.sidebar.header("🔍 数据筛选")
+        search_query = st.sidebar.text_input("按商品编码查询 (如: C0002)", "").strip().upper()
+        status_filter = st.sidebar.radio("选择显示范围：", ["全部", "盈利", "亏损"])
+        
+        valid_p_df = product_totals.copy()
+        if status_filter == "盈利":
+            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] >= valid_p_df['目标指标']]
+        elif status_filter == "亏损":
+            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] < valid_p_df['目标指标']]
+        if search_query:
+            valid_p_df = valid_p_df[valid_p_df['产品编号'].str.contains(search_query, na=False)]
+        valid_p = valid_p_df['产品编号'].tolist()
 
         # --- 7. 样式引擎 ---
         unique_p = product_totals['产品编号'].unique()
@@ -155,7 +155,7 @@ if uploaded_files:
                 styles.append(cell_style)
             return styles
 
-        p_spend_map = product_totals.set_index('产品编号')['真实支出']
+        p_spend_map = product_totals.set_index('产品编号')['广告真实支出']
 
         # --- 8. 渲染表格 ---
         st.divider()
@@ -167,7 +167,7 @@ if uploaded_files:
             "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
             "目标指标": st.column_config.NumberColumn(format="%d%%"),
             "支出占比": st.column_config.NumberColumn(format="%.1f%%"),
-            "真实支出": st.column_config.NumberColumn(format="₩%d"),
+            "广告真实支出": st.column_config.NumberColumn(format="₩%d"),
             "真实CPC": st.column_config.NumberColumn(format="₩%d"),
             "点击率": st.column_config.NumberColumn(format="%.2f%%"),
             "转化率": st.column_config.NumberColumn(format="%.2f%%")
@@ -178,15 +178,14 @@ if uploaded_files:
             kw_f['维度'] = kw_f['关键词'].apply(lambda x: '🤖 非搜索区域' if '非搜索' in x else '🔎 搜索区域')
             area_df = kw_f.groupby(['产品编号', '维度']).agg({'展示量': 'sum', '点击量': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum', '目标指标': 'max'}).reset_index()
             area_df = calculate_metrics(area_df)
-            area_df['支出占比'] = area_df.apply(lambda x: (x['真实支出']/p_spend_map[x['产品编号']]*100) if x['产品编号'] in p_spend_map else 0, axis=1).round(1)
+            area_df['支出占比'] = area_df.apply(lambda x: (x['广告真实支出']/p_spend_map[x['产品编号']]*100) if x['产品编号'] in p_spend_map else 0, axis=1).round(1)
             p_sub = product_totals[product_totals['产品编号'].isin(valid_p)].copy()
             p_sub['维度'], p_sub['支出占比'] = '📌 产品总计', 100.0
             t1_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
             
-            # --- 列顺序调整：真实CPC 移动到 点击量 后面 ---
             st.dataframe(t1_df.style.apply(lambda r: apply_lxu_style(r, True), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实CPC", "真实支出", "销售额", "点击率", "转化率"),
+                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实CPC", "广告真实支出", "销售额", "点击率", "转化率"),
                          column_config=common_config)
 
         with tab2:
@@ -194,12 +193,11 @@ if uploaded_files:
             det_sub = p_sub.rename(columns={'维度': '关键词'})
             det_sub['策略日期'], det_sub['sort_weight'] = 'TOTAL', 2
             t2_df = pd.concat([kw_f, det_sub], ignore_index=True).sort_values(['产品编号', 'sort_weight', '真实支出'], ascending=[True, True, False])
-            t2_df['支出占比'] = t2_df.apply(lambda x: (x['真实支出']/p_spend_map[x['产品编号']]*100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
+            t2_df['支出占比'] = t2_df.apply(lambda x: (x['广告真实支出']/p_spend_map[x['产品编号']]*100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
             
-            # --- 列顺序调整：真实CPC 移动到 点击量 后面 ---
             st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实CPC", "真实支出", "销售额", "点击率", "转化率"),
+                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实CPC", "广告真实支出", "销售额", "点击率", "转化率"),
                          column_config=common_config)
 
         # 9. Excel 导出
