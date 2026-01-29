@@ -1,23 +1,53 @@
-# 📊 LxU Coupang 广告报表分析助手
+import streamlit as st
+import pandas as pd
 
-这是一个基于 Python 和 Streamlit 开发的内部工具，专门用于解析 Coupang 广告后台导出的数据报表。
+st.set_page_config(page_title="LxU 广告汇总工具", layout="wide")
 
-## 🚀 功能特点
-* **多账号兼容**：支持上传多个 CSV/Excel 报表进行汇总。
-* **核心指标自动化**：自动计算 ROAS、CTR、CPC 及各 SKU 表现。
-* **可视化看板**：通过气泡图和柱状图直观展示消耗与产出比。
-* **数据安全**：代码托管于 GitHub，通过 Streamlit Cloud 私有部署。
+st.title("📊 Coupang 多店铺广告数据合并")
 
-## 🛠 如何使用
-1. **导出报表**：从 Coupang 广告管理后台导出特定日期的 `CSV` 或 `Excel` 文件。
-2. **上传文件**：打开本应用网页，将文件拖入上传区域。
-3. **查看分析**：左侧边栏可筛选特定账号或日期，中间区域查看可视化统计。
+# 1. 多文件上传
+uploaded_files = st.file_uploader(
+    "批量上传广告报表", 
+    type=['csv', 'xlsx'], 
+    accept_multiple_files=True
+)
 
-## 📦 技术栈
-* Python 3.9+
-* Streamlit (UI 框架)
-* Pandas (数据处理)
-* Plotly (交互式绘图)
+if uploaded_files:
+    all_data = []
+    
+    for file in uploaded_files:
+        try:
+            # 根据后缀读取，并处理韩文编码
+            if file.name.endswith('.csv'):
+                try:
+                    df = pd.read_csv(file, encoding='utf-8')
+                except:
+                    df = pd.read_csv(file, encoding='cp949')
+            else:
+                df = pd.read_excel(file)
+            
+            # 记录来源文件名，方便区分店铺
+            df['数据来源文件'] = file.name
+            all_data.append(df)
+        except Exception as e:
+            st.error(f"文件 {file.name} 读取失败: {e}")
 
----
-*Developed by LxU Team*
+    if all_data:
+        # 2. 合并数据
+        combined_df = pd.concat(all_data, ignore_index=True)
+        
+        # 3. 存入 Session State 供后续步骤使用
+        st.session_state['raw_df'] = combined_df
+        
+        st.success(f"✅ 成功合并 {len(uploaded_files)} 个文件！总行数: {len(combined_df)}")
+        
+        # 展示前 10 行预览
+        st.subheader("合并数据预览")
+        st.dataframe(combined_df.head(10))
+        
+        # 侧边栏：列出检测到的字段名，方便我们下一步定位
+        st.sidebar.write("### 检测到的原始字段：")
+        st.sidebar.write(list(combined_df.columns))
+        
+else:
+    st.info("👋 请上传一个或多个 Coupang 报表文件开始测试。")
