@@ -115,11 +115,20 @@ if uploaded_files:
             if is_ns: return [f'background-color: {base_color}; color: #0056b3; font-weight: 500'] * len(row)
             return [f'background-color: {base_color}'] * len(row)
 
+        # 映射表用于支出占比计算
+        p_spend_map = product_totals.set_index('产品编号')['真实支出']
+
         with tab1:
             kw_summary['维度'] = kw_summary['关键词'].apply(lambda x: '🤖 非搜索区域' if '非搜索' in x else '🔎 搜索区域')
             area_df = kw_summary.groupby(['产品编号', '维度']).agg({'展示量': 'sum', '点击量': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum', '目标指标': 'max'}).reset_index()
             area_df = calculate_metrics(area_df)
+            
+            # 计算对比看板的支出占比
+            area_df['支出占比'] = area_df.apply(lambda x: (x['真实支出'] / p_spend_map[x['产品编号']] * 100), axis=1).round(1)
+            
             p_sub = product_totals.copy(); p_sub['维度'] = '📌 产品总计'
+            p_sub['支出占比'] = 100.0
+            
             compare_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
             
             st.dataframe(compare_df.style.apply(lambda r: apply_styles(r, 'area'), axis=1), 
@@ -129,7 +138,8 @@ if uploaded_files:
                              "转化率": st.column_config.NumberColumn(format="%.2f%%"), 
                              "目标指标": st.column_config.NumberColumn(format="%d%%"),
                              "真实支出": st.column_config.NumberColumn(format="₩%d"), 
-                             "真实CPC": st.column_config.NumberColumn(format="₩%d")
+                             "真实CPC": st.column_config.NumberColumn(format="₩%d"),
+                             "支出占比": st.column_config.NumberColumn(format="%.1f%%")
                          },
                          hide_index=True, use_container_width=True)
 
@@ -141,7 +151,7 @@ if uploaded_files:
             detailed_final = pd.concat([kw_summary, det_sub], ignore_index=True)
             detailed_final = detailed_final.sort_values(['产品编号', 'sort_weight', '真实支出'], ascending=[True, True, False])
             
-            p_spend_map = product_totals.set_index('产品编号')['真实支出']
+            # 关键词明细的占比逻辑保持不变
             detailed_final['支出占比'] = detailed_final.apply(lambda x: (x['真实支出'] / p_spend_map[x['产品编号']] * 100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
 
             st.dataframe(
