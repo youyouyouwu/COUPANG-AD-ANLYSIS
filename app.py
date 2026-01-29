@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
 import re
+import plotly.express as px
 
 st.set_page_config(page_title="LxU 广告智能决策看板", layout="wide")
 
-st.title("🚀 LxU 广告全维度看板")
-st.markdown("已集成：**Tab 1 产品级对比** & **Tab 2 明细表（非搜置顶+总计置底）**")
+st.title("🚀 LxU 广告智能决策看板")
 
 # 1. 文件上传
 uploaded_files = st.file_uploader("批量上传广告报表", type=['csv', 'xlsx'], accept_multiple_files=True)
@@ -28,12 +28,12 @@ if uploaded_files:
     if all_data:
         raw_df = pd.concat(all_data, ignore_index=True)
 
-        # 2. 属性提取引擎
+        # --- 2. 属性提取引擎 ---
         def extract_info(row):
             camp_name, grp_name = str(row.iloc[5]), str(row.iloc[6])
             full_text = f"{camp_name} {grp_name}"
             p_code = re.search(r'C\d{3,5}', full_text, re.IGNORECASE)
-            p_code = p_code.group(0).upper() if p_code else "未识别"
+            p_code = p_code_match.group(0).upper() if (p_code_match := p_code) else "未识别"
             target_match = re.search(r'【(\d+)】', full_text)
             target_val = int(target_match.group(1)) if target_match else 0
             date_match = re.search(r'【(\d{1,2}\.\d{1,2})】', full_text)
@@ -42,7 +42,7 @@ if uploaded_files:
 
         raw_df[['产品编号', '目标指标', '策略日期']] = raw_df.apply(extract_info, axis=1)
 
-        # 3. 数据清洗与对齐
+        # --- 3. 数据清洗与对齐 ---
         analysis_df = raw_df.copy()
         mask_ns = (analysis_df.iloc[:, 12].isna()) | \
                   (analysis_df.iloc[:, 11].str.contains('비검색|非搜索', na=False)) | \
@@ -50,102 +50,105 @@ if uploaded_files:
         
         analysis_df.iloc[:, 12] = analysis_df.iloc[:, 12].astype(str).str.strip().replace({'nan': '🤖 非搜索区域', '': '🤖 非搜索区域'})
         analysis_df.iloc[:, 11] = analysis_df.iloc[:, 11].astype(str).str.strip()
-        
         analysis_df.loc[mask_ns, analysis_df.columns[12]] = '🤖 非搜索区域'
         analysis_df.loc[mask_ns, analysis_df.columns[11]] = '🤖 非搜索区域'
-        analysis_df.loc[mask_ns, '策略日期'] = '汇总'
 
         analysis_df = analysis_df.rename(columns={
-            analysis_df.columns[11]: '展示版面', analysis_df.columns[12]: '关键词',
             analysis_df.columns[13]: '展示', analysis_df.columns[14]: '点击',
             analysis_df.columns[15]: '原支出', analysis_df.columns[29]: '销量', analysis_df.columns[32]: '销售额'
         })
 
-        # 4. 聚合计算
-        # a. 基础明细聚合
+        # --- 4. 核心计算逻辑 ---
+        # 关键词级明细
         kw_summary = analysis_df.groupby(['产品编号', '展示版面', '关键词', '目标指标', '策略日期']).agg({
             '展示': 'sum', '点击': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum'
         }).reset_index()
 
-        # b. 产品对比逻辑
-        kw_summary['维度类型'] = kw_summary['关键词'].apply(lambda x: '🤖 非搜索区域' if '非搜索' in x else '🔎 搜索区域')
-        
-        area_summary = kw_summary.groupby(['产品编号', '维度类型']).agg({
+        # 产品级汇总 (用于图表和总计行)
+        product_totals = kw_summary.groupby('产品编号').agg({
             '展示': 'sum', '点击': 'sum', '原支出': 'sum', '销售额': 'sum', '目标指标': 'max'
         }).reset_index()
+        product_totals['真实支出'] = (product_totals['原支出'] * 1.1).round(0)
+        product_totals['真实ROAS'] = (product_totals['销售额'] / product_totals['真实支出'] * 100).round(2)
 
-        product_totals = area_summary.groupby('产品编号').agg({
-            '展示': 'sum', '点击': 'sum', '原支出': 'sum', '销售额': 'sum', '目标指标': 'max'
-        }).reset_index()
-        product_totals['维度类型'] = '📌 产品总计'
+        # --- 5. 顶层全局大盘 (表格外部分析) ---
+        total_spent = product_totals['真实支出'].sum()
+        total_sales = product_totals['销售额'].sum()
+        avg_roas = (total_sales / total_spent * 100) if total_spent > 0 else 0
 
-        # 5. 组装 Tab 1 的对比看板数据
-        final_compare = pd.concat([area_summary, product_totals], ignore_index=True)
-        final_compare = final_compare.sort_values(['产品编号', '维度类型'], ascending=[True, False])
-        final_compare['真实支出'] = (final_compare['原支出'] * 1.1).round(0)
-        final_compare['真实ROAS'] = (final_compare['销售额'] / final_compare['真实支出'] * 100).round(2)
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("📦 全局总消耗 (含税)", f"₩{total_spent:,.0f}")
+        col_m2.metric("💰 全局总销售额", f"₩{total_sales:,.0f}")
+        col_m3.metric("📈 平均 ROAS", f"{avg_roas:.2f}%")
 
-        # 6. 组装 Tab 2 的关键词明细数据 (含排序权重)
-        kw_summary['sort_weight'] = kw_summary['关键词'].apply(lambda x: 0 if '非搜索' in x else 1)
-        sub_totals = product_totals.copy().rename(columns={'维度类型': '关键词'})
-        sub_totals['展示版面'] = '📌 总计'
-        sub_totals['策略日期'] = 'TOTAL'
-        sub_totals['sort_weight'] = 2
+        # 统计图表：各产品 ROAS 表现排名
+        fig_roas = px.bar(product_totals.sort_values('真实ROAS', ascending=False), 
+                         x='产品编号', y='真实ROAS', color='真实ROAS',
+                         title="各产品真实 ROAS 排名 (含税)",
+                         labels={'真实ROAS': 'ROAS (%)'},
+                         color_continuous_scale='RdYlGn')
+        st.plotly_chart(fig_roas, use_container_width=True)
 
-        detailed_final = pd.concat([kw_summary, sub_totals], ignore_index=True)
-        detailed_final = detailed_final.sort_values(['产品编号', 'sort_weight', '原支出'], ascending=[True, True, False])
-        detailed_final['真实支出'] = (detailed_final['原支出'] * 1.1).round(0)
-        detailed_final['真实ROAS'] = (detailed_final['销售额'] / detailed_final['真实支出'] * 100).round(2)
-        
-        p_total_spend_map = product_totals.set_index('产品编号')['原支出'] * 1.1
-        detailed_final['支出占比'] = detailed_final.apply(
-            lambda x: (x['真实支出'] / p_total_spend_map[x['产品编号']] * 100) if x['sort_weight'] != 2 else 100.0, axis=1
-        ).round(1)
-
-        # 7. 界面展示 (Tabs 布局)
+        # --- 6. 详细分析表 (Tabs 布局) ---
+        st.divider()
         tab1, tab2 = st.tabs(["🎯 产品对比看板 (汇总)", "📄 关键词详细明细 (下钻)"])
 
-        # 斑马纹与高亮样式函数
-        unique_p = detailed_final['产品编号'].unique()
+        # 样式辅助数据
+        unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
-        def apply_styles(row, weight_col):
+        def apply_styles(row, weight_val):
             base_color = p_color_map[row['产品编号']]
-            if row[weight_col] == (2 if weight_col == 'sort_weight' else '📌 产品总计'):
+            if weight_val == 'total': # 总计行
                 return ['background-color: #e8f4ea; font-weight: bold; border-top: 2px solid #ccc'] * len(row)
-            if weight_col == 'sort_weight' and row['sort_weight'] == 0:
+            if weight_val == 'non_search': # 非搜索行
                 return [f'background-color: {base_color}; color: #0056b3; font-weight: 500'] * len(row)
             return [f'background-color: {base_color}'] * len(row)
 
         with tab1:
-            st.subheader("搜索 vs 非搜索 vs 产品总览")
+            # 组装看板数据
+            kw_summary['维度'] = kw_summary['关键词'].apply(lambda x: '🤖 非搜索区域' if '非搜索' in x else '🔎 搜索区域')
+            area_summary = kw_summary.groupby(['产品编号', '维度']).agg({
+                '展示': 'sum', '点击': 'sum', '原支出': 'sum', '销售额': 'sum', '目标指标': 'max'
+            }).reset_index()
+            area_summary['真实支出'] = (area_summary['原支出'] * 1.1).round(0)
+            
+            p_sub_totals = product_totals.copy()
+            p_sub_totals['维度'] = '📌 产品总计'
+            
+            compare_df = pd.concat([area_summary, p_sub_totals], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
+            compare_df['真实ROAS'] = (compare_df['销售额'] / compare_df['真实支出'] * 100).round(2)
+
             st.dataframe(
-                final_compare.style.apply(lambda r: apply_styles(r, '维度类型'), axis=1),
-                column_config={
-                    "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
-                    "真实支出": st.column_config.NumberColumn(format="₩%d"),
-                    "销售额": st.column_config.NumberColumn(format="₩%d")
-                },
-                hide_index=True, use_container_width=True, height=600
+                compare_df.style.apply(lambda r: apply_styles(r, 'total' if r['维度'] == '📌 产品总计' else 'normal'), axis=1),
+                column_config={"真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), "真实支出": st.column_config.NumberColumn(format="₩%d"), "销售额": st.column_config.NumberColumn(format="₩%d")},
+                hide_index=True, use_container_width=True, height=500
             )
 
         with tab2:
-            st.subheader("全维度明细 (非搜置顶 -> 手动词 -> 总计置底)")
+            # 组装明细数据
+            kw_summary['sort_weight'] = kw_summary['关键词'].apply(lambda x: 0 if '非搜索' in x else 1)
+            det_totals = p_sub_totals.rename(columns={'维度': '关键词'})
+            det_totals['展示版面'] = '📌 总计'
+            det_totals['策略日期'] = 'TOTAL'
+            det_totals['sort_weight'] = 2
+
+            detailed_final = pd.concat([kw_summary, det_totals], ignore_index=True)
+            detailed_final = detailed_final.sort_values(['产品编号', 'sort_weight', '原支出'], ascending=[True, True, False])
+            detailed_final['真实支出'] = (detailed_final['原支出'] * 1.1).round(0)
+            detailed_final['真实ROAS'] = (detailed_final['销售额'] / detailed_final['真实支出'] * 100).round(2)
+            
+            p_spend_map = product_totals.set_index('产品编号')['真实支出']
+            detailed_final['支出占比'] = detailed_final.apply(lambda x: (x['真实支出'] / p_spend_map[x['产品编号']] * 100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
+
             st.dataframe(
-                detailed_final.style.apply(lambda r: apply_styles(r, 'sort_weight'), axis=1),
-                column_config={
-                    "sort_weight": None, "维度类型": None,
-                    "支出占比": st.column_config.NumberColumn(format="%.1f%%"),
-                    "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
-                    "真实支出": st.column_config.NumberColumn(format="₩%d"),
-                    "销售额": st.column_config.NumberColumn(format="₩%d")
-                },
-                hide_index=True, use_container_width=True, height=1000
+                detailed_final.style.apply(lambda r: apply_styles(r, 'total' if r['sort_weight']==2 else ('non_search' if r['sort_weight']==0 else 'normal')), axis=1),
+                column_config={"sort_weight": None, "维度": None, "支出占比": st.column_config.NumberColumn(format="%.1f%%"), "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), "真实支出": st.column_config.NumberColumn(format="₩%d")},
+                hide_index=True, use_container_width=True, height=900
             )
 
-        # 侧边栏导出
-        csv_data = detailed_final.drop(columns=['sort_weight', '维度类型']).to_csv(index=False).encode('utf-8-sig')
-        st.sidebar.download_button("📥 下载完整报告", csv_data, "LxU_Integrated_Report.csv", "text/csv")
-
+        # 侧边栏下载
+        csv_data = detailed_final.drop(columns=['sort_weight', '维度']).to_csv(index=False).encode('utf-8-sig')
+        st.sidebar.download_button("📥 下载完整报告", csv_data, "LxU_Full_Analysis.csv", "text/csv")
 else:
-    st.info("👋 请批量上传广告报表进行分析。")
+    st.info("👋 请批量上传报表。")
