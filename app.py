@@ -183,9 +183,10 @@ if uploaded_files:
             p_sub['维度'], p_sub['支出占比'] = '📌 产品总计', 100.0
             t1_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
             
+            # --- 列顺序调整：真实CPC 移动到 点击量 后面 ---
             st.dataframe(t1_df.style.apply(lambda r: apply_lxu_style(r, True), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
+                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实CPC", "真实支出", "销售额", "点击率", "转化率"),
                          column_config=common_config)
 
         with tab2:
@@ -195,9 +196,10 @@ if uploaded_files:
             t2_df = pd.concat([kw_f, det_sub], ignore_index=True).sort_values(['产品编号', 'sort_weight', '真实支出'], ascending=[True, True, False])
             t2_df['支出占比'] = t2_df.apply(lambda x: (x['真实支出']/p_spend_map[x['产品编号']]*100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
             
+            # --- 列顺序调整：真实CPC 移动到 点击量 后面 ---
             st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
+                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实CPC", "真实支出", "销售额", "点击率", "转化率"),
                          column_config=common_config)
 
         # 9. Excel 导出
@@ -210,4 +212,4 @@ if uploaded_files:
 
         st.sidebar.download_button("📥 下载 Excel 报告", to_excel_final(t1_df, t2_df), "LxU_Report.xlsx")
 else:
-    st.info("👋 请批量上传广告报表。")
+    st.info("👋 请批量上传广告报表进行分析。")
