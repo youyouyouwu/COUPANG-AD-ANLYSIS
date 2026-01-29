@@ -91,13 +91,27 @@ if uploaded_files:
         t_clicks = product_totals['点击量'].sum()
         t_views = product_totals['展示量'].sum()
 
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("📦 总消耗", f"₩{t_spent:,.0f}")
-        m2.metric("💰 总销售额", f"₩{t_sales:,.0f}")
-        m3.metric("📈 ROAS", f"{(t_sales/t_spent*100):.2f}%" if t_spent>0 else "0%")
-        m4.metric("🖱️ CPC", f"₩{(t_spent/t_clicks):.0f}" if t_clicks>0 else "0")
-        m5.metric("🎯 点击率", f"{(t_clicks/t_views*100):.2f}%" if t_views>0 else "0%")
-        m6.metric("🛒 转化率", f"{(product_totals['销量'].sum()/t_clicks*100):.2f}%" if t_clicks>0 else "0%")
+        # 计算产品数量指标
+        total_skus = len(product_totals)
+        win_skus = len(product_totals[product_totals['真实ROAS'] >= product_totals['目标指标']])
+        loss_skus = total_skus - win_skus
+
+        # 第一排：整体财务指标
+        st.subheader("💰 财务表现汇总")
+        col_f1, col_f2, col_f3, col_f4, col_f5, col_f6 = st.columns(6)
+        col_f1.metric("📦 总消耗", f"₩{t_spent:,.0f}")
+        col_f2.metric("💰 总销售额", f"₩{t_sales:,.0f}")
+        col_f3.metric("📈 ROAS", f"{(t_sales/t_spent*100):.2f}%" if t_spent>0 else "0%")
+        col_f4.metric("🖱️ CPC", f"₩{(t_spent/t_clicks):.0f}" if t_clicks>0 else "0")
+        col_f5.metric("🎯 点击率", f"{(t_clicks/t_views*100):.2f}%" if t_views>0 else "0%")
+        col_f6.metric("🛒 转化率", f"{(product_totals['销量'].sum()/t_clicks*100):.2f}%" if t_clicks>0 else "0%")
+
+        # 第二排：产品盈亏分布指标
+        st.subheader("📦 产品盈亏分布")
+        col_p1, col_p2, col_p3 = st.columns(3)
+        col_p1.metric("📊 广告产品总数", f"{total_skus} 款")
+        col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%", delta_color="normal")
+        col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
 
         # --- 6. 侧边栏筛选 ---
         st.sidebar.header("📊 盈亏筛选器")
