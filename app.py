@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 import re
 
-st.set_page_config(page_title="LxU 广告全维度看板", layout="wide")
+st.set_page_config(page_title="LxU 广告全量分析看板", layout="wide")
 
-st.title("📊 LxU 广告数据全维度看板")
+st.title("📊 LxU 广告关键词明细（含产品总计）")
+st.markdown("已实现：每个产品的关键词下方自动紧跟该产品的**汇总数据行**。")
 
-# 1. 文件上传
 uploaded_files = st.file_uploader("批量上传广告报表", type=['csv', 'xlsx'], accept_multiple_files=True)
 
 if uploaded_files:
@@ -22,7 +22,7 @@ if uploaded_files:
     if all_data:
         raw_df = pd.concat(all_data, ignore_index=True)
 
-        # --- 属性提取 ---
+        # 1. 属性提取
         def extract_info(row):
             camp_name, grp_name = str(row.iloc[5]), str(row.iloc[6])
             full_text = f"{camp_name} {grp_name}"
@@ -36,15 +36,13 @@ if uploaded_files:
 
         raw_df[['产品编号', '目标指标', '策略日期']] = raw_df.apply(extract_info, axis=1)
 
-        # --- 数据清洗与合并非搜索 ---
+        # 2. 清洗与归一化
         analysis_df = raw_df.copy()
         mask_ns = (analysis_df.iloc[:, 12].isna()) | (analysis_df.iloc[:, 11].str.contains('비검색|非搜索', na=False)) | (analysis_df.iloc[:, 12].astype(str) == 'nan')
         
-        # 统一处理关键词明细列
         analysis_df['展示版面'] = analysis_df.iloc[:, 11].astype(str).str.strip()
         analysis_df['关键词'] = analysis_df.iloc[:, 12].astype(str).str.strip()
         
-        # 强制合并非搜索区域逻辑
         analysis_df.loc[mask_ns, '展示版面'] = '🤖 非搜索区域'
         analysis_df.loc[mask_ns, '关键词'] = '🤖 非搜索区域'
         analysis_df.loc[mask_ns, '策略日期'] = '汇总'
@@ -54,76 +52,66 @@ if uploaded_files:
             analysis_df.columns[15]: '原支出', analysis_df.columns[29]: '销量', analysis_df.columns[32]: '销售额'
         })
 
-        # --- 聚合：关键词级明细 ---
+        # 3. 聚合关键词明细
         kw_summary = analysis_df.groupby(['产品编号', '展示版面', '关键词', '目标指标', '策略日期']).agg({
             '展示': 'sum', '点击': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum'
-        }).reset_index().sort_values(['产品编号', '原支出'], ascending=[True, False])
-
-        kw_summary['真实支出'] = (kw_summary['原支出'] * 1.1).round(0)
-        kw_summary['真实ROAS'] = (kw_summary['销售额'] / kw_summary['真实支出'] * 100).round(2)
-        kw_summary['支出占比'] = (kw_summary['真实支出'] / kw_summary.groupby('产品编号')['真实支出'].transform('sum') * 100).round(1)
-        kw_summary = kw_summary.replace([float('inf'), -float('inf')], 0).fillna(0)
-
-        # --- 聚合：产品对比看板 ---
-        kw_summary['维度分类'] = kw_summary['关键词'].apply(lambda x: '🤖 非搜索区域' if '非搜索' in x else '🔎 搜索区域')
-        area_summary = kw_summary.groupby(['产品编号', '维度分类']).agg({
-            '展示': 'sum', '点击': 'sum', '真实支出': 'sum', '销售额': 'sum', '目标指标': 'max'
         }).reset_index()
 
-        # 计算对比总计行
-        product_totals = area_summary.groupby('产品编号').agg({
-            '展示': 'sum', '点击': 'sum', '真实支出': 'sum', '销售额': 'sum', '目标指标': 'max'
+        # 4. 【关键步骤】计算产品总计并插入明细
+        product_sum = kw_summary.groupby('产品编号').agg({
+            '展示': 'sum', '点击': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum', '目标指标': 'max'
         }).reset_index()
-        product_totals['维度分类'] = '📌 产品总计'
+        product_sum['展示版面'] = '📌 总计'
+        product_sum['关键词'] = '📌 产品总计'
+        product_sum['策略日期'] = 'TOTAL'
 
-        # 最终看板表
-        final_compare = pd.concat([area_summary, product_totals], ignore_index=True).sort_values(['产品编号', '维度分类'], ascending=[True, False])
-        final_compare['真实ROAS'] = (final_compare['销售额'] / final_compare['真实支出'] * 100).round(2)
+        # 合并明细与总计，并排序确保总计在每个产品最下方
+        # 我们给总计行一个排序权重，让它排在最后
+        kw_summary['is_total'] = 0
+        product_sum['is_total'] = 1
+        combined_final = pd.concat([kw_summary, product_sum], ignore_index=True)
+        combined_final = combined_final.sort_values(['产品编号', 'is_total', '原支出'], ascending=[True, True, False])
+
+        # 5. 指标计算
+        combined_final['真实支出'] = (combined_final['原支出'] * 1.1).round(0)
+        combined_final['真实ROAS'] = (combined_final['销售额'] / combined_final['真实支出'] * 100).round(2)
         
-        # --- 界面展示 (找回丢失的明细预览) ---
-        tab1, tab2 = st.tabs(["🎯 产品对比看板 (含总计)", "📄 关键词明细表"])
+        # 支出占比：明细行相对于产品总额的比例
+        p_total_spend = product_sum.set_index('产品编号')['原支出'] * 1.1
+        combined_final['支出占比'] = combined_final.apply(
+            lambda x: (x['真实支出'] / p_total_spend[x['产品编号']] * 100) if x['is_total'] == 0 else 100.0, axis=1
+        ).round(1)
 
-        with tab1:
-            st.subheader("搜索 vs 非搜索 vs 产品总计")
-            # 针对总计行高亮的样式
-            def highlight_total_row(row):
-                if row['维度分类'] == '📌 产品总计':
-                    return ['background-color: #e8f4ea; font-weight: bold'] * len(row)
-                return [''] * len(row)
+        combined_final = combined_final.replace([float('inf'), -float('inf')], 0).fillna(0)
 
-            st.dataframe(
-                final_compare.style.apply(highlight_total_row, axis=1),
-                column_config={
-                    "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
-                    "真实支出": st.column_config.NumberColumn(format="₩%d"),
-                    "销售额": st.column_config.NumberColumn(format="₩%d")
-                },
-                hide_index=True, use_container_width=True
-            )
+        # 6. 界面渲染（斑马纹 + 总计高亮）
+        st.subheader("关键词全维度明细（含产品总计行）")
+        
+        unique_p = combined_final['产品编号'].unique()
+        p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
-        with tab2:
-            st.subheader("关键词维度全明细")
-            # 斑马纹逻辑：相同产品编号颜色一致
-            unique_p = kw_summary['产品编号'].unique()
-            p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
-            
-            def zebra_style(row):
-                return [f'background-color: {p_color_map[row["产品编号"]]}'] * len(row)
+        def integrated_style(row):
+            # 基础斑马纹：按产品编号变色
+            base_color = p_color_map[row['产品编号']]
+            # 如果是总计行，强制变色并加粗
+            if row['is_total'] == 1:
+                return ['background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc'] * len(row)
+            return [f'background-color: {base_color}'] * len(row)
 
-            # 重新渲染明细预览窗口
-            st.dataframe(
-                kw_summary.drop(columns=['维度分类']).style.apply(zebra_style, axis=1),
-                column_config={
-                    "支出占比": st.column_config.NumberColumn(format="%.1f%%"),
-                    "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
-                    "真实支出": st.column_config.NumberColumn(format="₩%d"),
-                    "目标指标": st.column_config.NumberColumn(format="%d%%")
-                },
-                hide_index=True, use_container_width=True
-            )
+        st.dataframe(
+            combined_final.drop(columns=['is_total']).style.apply(integrated_style, axis=1),
+            column_config={
+                "支出占比": st.column_config.NumberColumn(format="%.1f%%"),
+                "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
+                "真实支出": st.column_config.NumberColumn(format="₩%d"),
+                "销售额": st.column_config.NumberColumn(format="₩%d"),
+                "目标指标": st.column_config.NumberColumn(format="%d%%")
+            },
+            hide_index=True, use_container_width=True
+        )
 
-        # 侧边栏下载
-        csv = kw_summary.to_csv(index=False).encode('utf-8-sig')
-        st.sidebar.download_button("📥 下载全维度分析报告", csv, "LxU_Full_Analysis.csv", "text/csv")
+        # 下载
+        csv = combined_final.drop(columns=['is_total']).to_csv(index=False).encode('utf-8-sig')
+        st.sidebar.download_button("📥 下载完整汇总报告", csv, "LxU_Integrated_Ads.csv", "text/csv")
 else:
-    st.info("👋 请批量上传广告报表开始分析。")
+    st.info("👋 请批量上传报表。")
