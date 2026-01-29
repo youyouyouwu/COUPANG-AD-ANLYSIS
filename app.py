@@ -118,47 +118,53 @@ if uploaded_files:
         sheet2_df = pd.concat([kw_summary_f, det_sub], ignore_index=True).sort_values(['产品编号', 'sort_weight', '真实支出'], ascending=[True, True, False])
         sheet2_df['支出占比'] = sheet2_df.apply(lambda x: (x['真实支出'] / p_spend_map[x['产品编号']] * 100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
 
-        # 8. 视觉效果导出函数 (Excel 格式)
+        # 8. 视觉效果导出函数 (Excel)
         def to_excel_with_style(df1, df2):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                # 写入 Sheet1
-                df1.to_excel(writer, sheet_name='产品对比看板', index=False)
+                # 写入样式定义
                 workbook = writer.book
-                worksheet1 = writer.sheets['产品对比看板']
+                total_fmt = workbook.add_format({'bg_color': '#e8f4ea', 'bold': True, 'border': 1})
+                ns_fmt = workbook.add_format({'font_color': '#0056b3', 'bold': True})
                 
-                # 定义 Excel 格式
-                total_fmt = workbook.add_format({'bg_color': '#e8f4ea', 'bold': True})
-                header_fmt = workbook.add_format({'bg_color': '#D7E4BC', 'bold': True, 'border': 1})
-                
-                # Sheet1 视觉效果 (简单示例：总计行高亮)
+                # 写入 Sheet1
+                df1.to_excel(writer, sheet_name='Sheet1_产品对比看板', index=False)
+                ws1 = writer.sheets['Sheet1_产品对比看板']
                 for row_num, value in enumerate(df1['维度']):
                     if value == '📌 产品总计':
-                        worksheet1.set_row(row_num + 1, None, total_fmt)
+                        ws1.set_row(row_num + 1, None, total_fmt)
+                    elif value == '🤖 非搜索区域':
+                        ws1.write(row_num + 1, 1, value, ns_fmt)
 
                 # 写入 Sheet2
-                df2.drop(columns=['sort_weight', '维度'], errors='ignore').to_excel(writer, sheet_name='关键词详细明细', index=False)
-                worksheet2 = writer.sheets['关键词详细明细']
+                final_sheet2 = df2.drop(columns=['sort_weight', '维度'], errors='ignore')
+                final_sheet2.to_excel(writer, sheet_name='Sheet2_关键词详细明细', index=False)
+                ws2 = writer.sheets['Sheet2_关键词详细明细']
                 for row_num, value in enumerate(df2['sort_weight']):
                     if value == 2:
-                        worksheet2.set_row(row_num + 1, None, total_fmt)
+                        ws2.set_row(row_num + 1, None, total_fmt)
+                    elif value == 0:
+                        ws2.write(row_num + 1, 2, '🤖 非搜索区域', ns_fmt)
 
             return output.getvalue()
 
-        # 9. 界面展示 (Tabs)
-        tab1, tab2 = st.tabs(["🎯 产品对比看板 (汇总)", "📄 关键词详细明细 (下钻)"])
+        # 9. 界面展示
+        tab1, tab2 = st.tabs(["🎯 产品对比看板", "📄 关键词明细表"])
         with tab1:
             st.dataframe(sheet1_df, use_container_width=True, hide_index=True)
         with tab2:
             st.dataframe(sheet2_df.drop(columns=['sort_weight', '维度'], errors='ignore'), use_container_width=True, hide_index=True, height=800)
 
         # 10. 下载按钮
-        excel_data = to_excel_with_style(sheet1_df, sheet2_df)
-        st.sidebar.download_button(
-            label="📥 下载 LxU 广告分析报告 (Excel)",
-            data=excel_data,
-            file_name="LxU_Ad_Analysis.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        try:
+            excel_data = to_excel_with_style(sheet1_df, sheet2_df)
+            st.sidebar.download_button(
+                label="📥 下载 LxU 广告分析报告 (Excel)",
+                data=excel_data,
+                file_name="LxU_Ad_Analysis.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception as e:
+            st.sidebar.error(f"Excel 生成失败，请检查 requirements.txt: {e}")
 else:
-    st.info("👋 请上传报表进行分析。")
+    st.info("👋 请上传报表。")
