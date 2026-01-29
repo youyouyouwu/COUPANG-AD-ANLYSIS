@@ -3,10 +3,11 @@ import pandas as pd
 import re
 from io import BytesIO
 
+# --- 页面配置 ---
 st.set_page_config(page_title="LxU 广告全维度看板", layout="wide")
 
 st.title("🚀 LxU 广告全维度看板")
-st.markdown("集成指标：**ROAS、CPC、点击率、转化率**。着色逻辑：**ROAS为0时不着色**，仅对有效亏损/盈利进行标记。")
+st.markdown("集成指标：**真实ROAS、真实CPC、点击率、转化率、目标指标(%)**。")
 
 # 1. 文件上传
 uploaded_files = st.file_uploader("批量上传广告报表", type=['csv', 'xlsx'], accept_multiple_files=True)
@@ -45,7 +46,7 @@ if uploaded_files:
         extracted_cols = raw_df.apply(extract_info, axis=1)
         raw_df = pd.concat([raw_df, extracted_cols], axis=1)
 
-        # 3. 数据清洗
+        # 3. 数据清洗与命名对齐
         analysis_df = raw_df.copy()
         analysis_df = analysis_df.rename(columns={
             analysis_df.columns[11]: '展示维度', 
@@ -66,7 +67,7 @@ if uploaded_files:
         analysis_df.loc[mask_ns, '维度'] = '🤖 非搜索区域'
         analysis_df.loc[mask_ns, '策略日期'] = '汇总'
 
-        # 4. 指标计算
+        # 4. 指标计算逻辑
         def calculate_metrics(df):
             df['真实支出'] = (df['原支出'] * 1.1).round(0)
             df['真实ROAS'] = (df['销售额'] / df['真实支出'] * 100).round(2)
@@ -85,7 +86,7 @@ if uploaded_files:
         }).reset_index()
         product_totals = calculate_metrics(product_totals)
 
-        # --- 5. 顶部合计指标 ---
+        # --- 5. 顶部合计指标卡片 (Metrics) ---
         t_spent = product_totals['真实支出'].sum()
         t_sales = product_totals['销售额'].sum()
         t_clicks = product_totals['点击量'].sum()
@@ -99,21 +100,20 @@ if uploaded_files:
         m5.metric("🎯 点击率", f"{(t_clicks/t_views*100):.2f}%" if t_views>0 else "0%")
         m6.metric("🛒 转化率", f"{(product_totals['销量'].sum()/t_clicks*100):.2f}%" if t_clicks>0 else "0%")
 
-        # --- 6. 侧边栏筛选 ---
+        # --- 6. 侧边栏盈亏筛选 ---
         st.sidebar.header("📊 盈亏筛选器")
-        status_filter = st.sidebar.radio("选择范围：", ["全部", "盈利", "亏损"])
+        status_filter = st.sidebar.radio("选择显示范围：", ["全部", "盈利", "亏损"])
         valid_p = product_totals['产品编号'].tolist()
         if status_filter == "盈利":
             valid_p = product_totals[product_totals['真实ROAS'] >= product_totals['目标指标']]['产品编号'].tolist()
         elif status_filter == "亏损":
-            # 筛选亏损时，通常包含0转化的
             valid_p = product_totals[product_totals['真实ROAS'] < product_totals['目标指标']]['产品编号'].tolist()
 
-        # --- 7. 核心样式引擎 (ROAS为0不着色) ---
+        # --- 7. 核心样式引擎 (红绿高亮 + ROAS为0不着色) ---
         unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
-        def apply_lxu_precision_style(row, is_tab1=True):
+        def apply_lxu_style(row, is_tab1=True):
             p_code = row['产品编号']
             base_color = p_color_map.get(p_code, '#ffffff')
             is_total = (row['维度'] == '📌 产品总计') if is_tab1 else (row['sort_weight'] == 2)
@@ -122,11 +122,10 @@ if uploaded_files:
             styles = []
             for col_name in row.index:
                 cell_style = f'background-color: {base_color}'
-                
-                # 总计行逻辑
+                # 总计行
                 if is_total:
                     cell_style = 'background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc'
-                    if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0: # 增加 > 0 判断
+                    if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
                         if row['真实ROAS'] >= row['目标指标']:
                             cell_style = 'background-color: #2e7d32; color: #ffffff; font-weight: bold'
                         else:
@@ -135,7 +134,7 @@ if uploaded_files:
                 elif is_ns:
                     cell_style = f'background-color: {base_color}; color: #0056b3; font-weight: 500'
                 
-                # 普通行单元格达标/亏损高亮 (增加 ROAS > 0 判断)
+                # 普通行 ROAS 单元格高亮
                 if not is_total and col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
                     if row['真实ROAS'] >= row['目标指标']:
                         cell_style += '; background-color: #c6efce; color: #006100'
@@ -144,9 +143,8 @@ if uploaded_files:
                 styles.append(cell_style)
             return styles
 
+        # --- 8. 数据渲染与导出准备 ---
         p_spend_map = product_totals.set_index('产品编号')['真实支出']
-
-        # --- 8. 渲染表格 ---
         st.divider()
         tab1, tab2 = st.tabs(["🎯 产品对比看板", "📄 关键词明细表"])
 
@@ -156,10 +154,15 @@ if uploaded_files:
             area_df = kw_f.groupby(['产品编号', '维度']).agg({'展示量': 'sum', '点击量': 'sum', '原支出': 'sum', '销量': 'sum', '销售额': 'sum', '目标指标': 'max'}).reset_index()
             area_df = calculate_metrics(area_df)
             area_df['支出占比'] = area_df.apply(lambda x: (x['真实支出']/p_spend_map[x['产品编号']]*100) if x['产品编号'] in p_spend_map else 0, axis=1).round(1)
+            
             p_sub = product_totals[product_totals['产品编号'].isin(valid_p)].copy()
             p_sub['维度'], p_sub['支出占比'] = '📌 产品总计', 100.0
             t1_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
-            st.dataframe(t1_df.style.apply(lambda r: apply_lxu_precision_style(r, True), axis=1), use_container_width=True, hide_index=True)
+            
+            st.dataframe(t1_df.style.apply(lambda r: apply_lxu_style(r, True), axis=1), 
+                         use_container_width=True, hide_index=True,
+                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
+                         column_config={"真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), "目标指标": st.column_config.NumberColumn(format="%d%%"), "支出占比": st.column_config.NumberColumn(format="%.1f%%")})
 
         with tab2:
             kw_f['sort_weight'] = kw_f['关键词'].apply(lambda x: 0 if '非搜索' in x else 1)
@@ -167,36 +170,42 @@ if uploaded_files:
             det_sub['策略日期'], det_sub['sort_weight'] = 'TOTAL', 2
             t2_df = pd.concat([kw_f, det_sub], ignore_index=True).sort_values(['产品编号', 'sort_weight', '真实支出'], ascending=[True, True, False])
             t2_df['支出占比'] = t2_df.apply(lambda x: (x['真实支出']/p_spend_map[x['产品编号']]*100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
-            st.dataframe(t2_df.style.apply(lambda r: apply_lxu_precision_style(r, False), axis=1), use_container_width=True, hide_index=True, height=800)
+            
+            # 网页显示：隐藏 sort_weight
+            st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
+                         use_container_width=True, hide_index=True, height=800,
+                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
+                         column_config={"真实ROAS": st.column_config.NumberColumn(format="%.2f%%"), "目标指标": st.column_config.NumberColumn(format="%d%%"), "支出占比": st.column_config.NumberColumn(format="%.1f%%")})
 
-        # 9. Excel 导出 (红绿视觉同步)
+        # 9. Excel 导出函数
         def to_excel_final(df1, df2):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 wb = writer.book
-                fmt_total_gn = wb.add_format({'bg_color': '#2e7d32', 'font_color': '#ffffff', 'bold': True})
-                fmt_total_rd = wb.add_format({'bg_color': '#c62828', 'font_color': '#ffffff', 'bold': True})
-                fmt_total_def = wb.add_format({'bg_color': '#e8f4ea', 'bold': True})
+                fmt_gn = wb.add_format({'bg_color': '#2e7d32', 'font_color': '#ffffff', 'bold': True, 'border': 1})
+                fmt_rd = wb.add_format({'bg_color': '#c62828', 'font_color': '#ffffff', 'bold': True, 'border': 1})
+                fmt_def = wb.add_format({'bg_color': '#e8f4ea', 'bold': True, 'border': 1})
                 
                 df1.to_excel(writer, sheet_name='汇总看板', index=False)
                 ws1 = writer.sheets['汇总看板']
                 for i, (roas, target, dim) in enumerate(zip(df1['真实ROAS'], df1['目标指标'], df1['维度'])):
                     if dim == '📌 产品总计':
-                        if target > 0 and roas > 0: # 修正判定
-                            ws1.set_row(i+1, None, fmt_total_gn if roas >= target else fmt_total_rd)
+                        if target > 0 and roas > 0:
+                            ws1.set_row(i+1, None, fmt_gn if roas >= target else fmt_rd)
                         else:
-                            ws1.set_row(i+1, None, fmt_total_def)
+                            ws1.set_row(i+1, None, fmt_def)
 
-                df2.drop(columns=['sort_weight'], errors='ignore').to_excel(writer, sheet_name='明细', index=False)
-                ws2 = writer.sheets['明细']
+                df2.drop(columns=['sort_weight'], errors='ignore').to_excel(writer, sheet_name='明细表', index=False)
+                ws2 = writer.sheets['明细表']
                 for i, (roas, target, w) in enumerate(zip(df2['真实ROAS'], df2['目标指标'], df2['sort_weight'])):
                     if w == 2:
-                        if target > 0 and roas > 0: # 修正判定
-                            ws2.set_row(i+1, None, fmt_total_gn if roas >= target else fmt_total_rd)
+                        if target > 0 and roas > 0:
+                            ws2.set_row(i+1, None, fmt_gn if roas >= target else fmt_rd)
                         else:
-                            ws2.set_row(i+1, None, fmt_total_def)
+                            ws2.set_row(i+1, None, fmt_def)
             return output.getvalue()
 
-        st.sidebar.download_button("📥 下载 Excel 报告", to_excel_final(t1_df, t2_df), "LxU_Precision_Report.xlsx")
+        st.sidebar.download_button("📥 下载 LxU 广告分析报告 (Excel)", to_excel_final(t1_df, t2_df), "LxU_Report.xlsx")
+
 else:
-    st.info("👋 请上传报表进行分析。")
+    st.info("👋 请批量上传广告报表。")
