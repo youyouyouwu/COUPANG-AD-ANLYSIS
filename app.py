@@ -66,7 +66,7 @@ if uploaded_files:
         analysis_df.loc[mask_ns, '维度'] = '🤖 非搜索区域'
         analysis_df.loc[mask_ns, '策略日期'] = '汇总'
 
-        # 4. 指标计算 (含四舍五入到个位数)
+        # 4. 指标计算 (四舍五入到个位数)
         def calculate_metrics(df):
             df['真实支出'] = (df['原支出'] * 1.1).round(0).astype(int)
             df['真实ROAS'] = (df['销售额'] / df['真实支出'] * 100).round(2)
@@ -96,7 +96,6 @@ if uploaded_files:
         win_skus = len(product_totals[product_totals['真实ROAS'] >= product_totals['目标指标']])
         loss_skus = total_skus - win_skus
 
-        # 第一排：整体财务指标
         st.subheader("💰 财务表现汇总")
         col_f1, col_f2, col_f3, col_f4, col_f5, col_f6 = st.columns(6)
         col_f1.metric("📦 总消耗", f"₩{t_spent:,.0f}")
@@ -106,11 +105,10 @@ if uploaded_files:
         col_f5.metric("🎯 点击率", f"{(t_clicks/t_views*100):.2f}%" if t_views>0 else "0%")
         col_f6.metric("🛒 转化率", f"{(product_totals['销量'].sum()/t_clicks*100):.2f}%" if t_clicks>0 else "0%")
 
-        # 第二排：产品盈亏分布指标
         st.subheader("📦 产品盈亏分布")
         col_p1, col_p2, col_p3 = st.columns(3)
         col_p1.metric("📊 广告产品总数", f"{total_skus} 款")
-        col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%", delta_color="normal")
+        col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
 
         # --- 6. 侧边栏筛选 ---
@@ -122,7 +120,7 @@ if uploaded_files:
         elif status_filter == "亏损":
             valid_p = product_totals[product_totals['真实ROAS'] < product_totals['目标指标']]['产品编号'].tolist()
 
-        # --- 7. 样式引擎 (支持红绿+ROAS为0不着色) ---
+        # --- 7. 样式引擎 ---
         unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
@@ -179,8 +177,9 @@ if uploaded_files:
             p_sub['维度'], p_sub['支出占比'] = '📌 产品总计', 100.0
             t1_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
             
+            # --- 修改：Tab 1 高度增加到 1000，方便下拉 ---
             st.dataframe(t1_df.style.apply(lambda r: apply_lxu_style(r, True), axis=1), 
-                         use_container_width=True, hide_index=True,
+                         use_container_width=True, hide_index=True, height=1000,
                          column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
                          column_config=common_config)
 
@@ -192,7 +191,7 @@ if uploaded_files:
             t2_df['支出占比'] = t2_df.apply(lambda x: (x['真实支出']/p_spend_map[x['产品编号']]*100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
             
             st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
-                         use_container_width=True, hide_index=True, height=800,
+                         use_container_width=True, hide_index=True, height=1000,
                          column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
                          column_config=common_config)
 
