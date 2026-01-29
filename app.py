@@ -66,8 +66,9 @@ if uploaded_files:
         analysis_df.loc[mask_ns, '维度'] = '🤖 非搜索区域'
         analysis_df.loc[mask_ns, '策略日期'] = '汇总'
 
-        # 4. 指标计算 (四舍五入到个位数)
+        # 4. 指标计算
         def calculate_metrics(df):
+            df['展示量'] = df['展示量'].round(0).fillna(0).astype(int)
             df['点击量'] = df['点击量'].round(0).fillna(0).astype(int)
             df['真实支出'] = (df['原支出'] * 1.1).round(0).fillna(0).astype(int)
             df['真实ROAS'] = (df['销售额'] / df['真实支出'] * 100).round(2)
@@ -86,28 +87,18 @@ if uploaded_files:
         }).reset_index()
         product_totals = calculate_metrics(product_totals)
 
-        # --- 5. 侧边栏功能区 (新增按商品编码筛选) ---
+        # --- 5. 侧边栏功能区 ---
         st.sidebar.header("🔍 数据筛选")
-        
-        # 搜索框
         search_query = st.sidebar.text_input("按商品编码查询 (如: C0002)", "").strip().upper()
-        
-        # 盈亏单选框
         status_filter = st.sidebar.radio("选择显示范围：", ["全部", "盈利", "亏损"])
         
-        # 逻辑合并筛选
         valid_p_df = product_totals.copy()
-        
-        # 盈亏过滤
         if status_filter == "盈利":
             valid_p_df = valid_p_df[valid_p_df['真实ROAS'] >= valid_p_df['目标指标']]
         elif status_filter == "亏损":
             valid_p_df = valid_p_df[valid_p_df['真实ROAS'] < valid_p_df['目标指标']]
-            
-        # 搜索框过滤
         if search_query:
             valid_p_df = valid_p_df[valid_p_df['产品编号'].str.contains(search_query, na=False)]
-            
         valid_p = valid_p_df['产品编号'].tolist()
 
         # --- 6. 顶部指标卡片 ---
@@ -135,7 +126,7 @@ if uploaded_files:
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
 
-        # --- 7. 样式引擎 (深红/墨绿逻辑) ---
+        # --- 7. 样式引擎 ---
         unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
@@ -171,6 +162,7 @@ if uploaded_files:
         tab1, tab2 = st.tabs(["🎯 产品对比看板", "📄 关键词明细表"])
 
         common_config = {
+            "展示量": st.column_config.NumberColumn(format="%d"),
             "点击量": st.column_config.NumberColumn(format="%d"),
             "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
             "目标指标": st.column_config.NumberColumn(format="%d%%"),
@@ -193,7 +185,7 @@ if uploaded_files:
             
             st.dataframe(t1_df.style.apply(lambda r: apply_lxu_style(r, True), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "点击量", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
+                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
                          column_config=common_config)
 
         with tab2:
@@ -205,7 +197,7 @@ if uploaded_files:
             
             st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "点击量", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
+                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实支出", "销售额", "真实CPC", "点击率", "转化率"),
                          column_config=common_config)
 
         # 9. Excel 导出
