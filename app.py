@@ -126,7 +126,7 @@ if uploaded_files:
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
 
-        # --- 7. 样式引擎 ---
+        # --- 7. 样式引擎 (新增非搜行灰色背景) ---
         unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
@@ -135,9 +135,17 @@ if uploaded_files:
             base_color = p_color_map.get(p_code, '#ffffff')
             is_total = (row['维度'] == '📌 产品总计') if is_tab1 else (row['sort_weight'] == 2)
             is_ns = (row['维度'] == '🤖 非搜索区域') if is_tab1 else (row['sort_weight'] == 0)
+            
             styles = []
             for col_name in row.index:
+                # 默认背景色（包含斑马纹）
                 cell_style = f'background-color: {base_color}'
+                
+                # 1. 非搜行整行淡淡的灰色
+                if is_ns:
+                    cell_style = 'background-color: #f2f2f2; color: #0056b3; font-weight: 500'
+                
+                # 2. 总计行样式（优先级高于非搜灰）
                 if is_total:
                     cell_style = 'background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc'
                     if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
@@ -145,13 +153,15 @@ if uploaded_files:
                             cell_style = 'background-color: #2e7d32; color: #ffffff; font-weight: bold'
                         else:
                             cell_style = 'background-color: #c62828; color: #ffffff; font-weight: bold'
-                elif is_ns:
-                    cell_style = f'background-color: {base_color}; color: #0056b3; font-weight: 500'
-                if not is_total and col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
-                    if row['真实ROAS'] >= row['目标指标']:
-                        cell_style += '; background-color: #c6efce; color: #006100'
-                    else:
-                        cell_style += '; background-color: #ffc7ce; color: #9c0006'
+                
+                # 3. 真实ROAS 达标/亏损变色（优先级最高，覆盖背景色）
+                if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
+                    if not is_total: # 非总计行
+                        if row['真实ROAS'] >= row['目标指标']:
+                            cell_style = 'background-color: #c6efce; color: #006100'
+                        else:
+                            cell_style = 'background-color: #ffc7ce; color: #9c0006'
+                
                 styles.append(cell_style)
             return styles
 
@@ -183,7 +193,6 @@ if uploaded_files:
             p_sub['维度'], p_sub['支出占比'] = '📌 产品总计', 100.0
             t1_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
             
-            # --- 列顺序调整：广告真实支出 调到 支出占比 之后 ---
             st.dataframe(t1_df.style.apply(lambda r: apply_lxu_style(r, True), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
                          column_order=("产品编号", "维度", "支出占比", "广告真实支出", "目标指标", "真实ROAS", "转化率", "点击率", "展示量", "点击量", "真实CPC", "销售额"),
@@ -196,13 +205,12 @@ if uploaded_files:
             t2_df = pd.concat([kw_f, det_sub], ignore_index=True).sort_values(['产品编号', 'sort_weight', '广告真实支出'], ascending=[True, True, False])
             t2_df['支出占比'] = t2_df.apply(lambda x: (x['广告真实支出']/p_spend_map[x['产品编号']]*100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
             
-            # --- 列顺序调整：广告真实支出 调到 支出占比 和 关键词 中间 ---
             st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
                          column_order=("产品编号", "维度", "支出占比", "广告真实支出", "关键词", "策略日期", "目标指标", "真实ROAS", "转化率", "点击率", "展示量", "点击量", "真实CPC", "销售额"),
                          column_config=common_config)
 
-        # 9. Excel 导出
+        # 9. Excel 导出 (Excel 导出暂不处理灰色，保持基础样式)
         def to_excel_final(df1, df2):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
