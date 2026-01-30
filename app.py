@@ -6,23 +6,6 @@ from io import BytesIO
 # --- 页面配置 ---
 st.set_page_config(page_title="LxU 广告全维度看板", layout="wide")
 
-# --- CSS 注入：强制修改表格表头样式 ---
-st.markdown("""
-    <style>
-    /* 修改表格表头：深灰色背景、白色加粗字体 */
-    thead tr th {
-        background-color: #444444 !important;
-        color: white !important;
-        font-weight: bold !important;
-        text-align: center !important;
-    }
-    /* 调整单元格边框让黑色分割线更自然 */
-    .stDataFrame div[data-testid="stTable"] {
-        border-collapse: collapse;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
 st.title("🚀 LxU 广告全维度看板")
 st.markdown("集成指标：**真实ROAS、真实CPC、点击率、转化率、目标指标(%)**。")
 
@@ -104,7 +87,7 @@ if uploaded_files:
         }).reset_index()
         product_totals = calculate_metrics(product_totals)
 
-        # --- 5. 侧边栏筛选 ---
+        # --- 5. 侧边栏功能区 ---
         st.sidebar.header("🔍 数据筛选")
         search_query = st.sidebar.text_input("按商品编码查询 (如: C0002)", "").strip().upper()
         status_filter = st.sidebar.radio("选择显示范围：", ["全部", "盈利", "亏损"])
@@ -118,7 +101,7 @@ if uploaded_files:
             valid_p_df = valid_p_df[valid_p_df['产品编号'].str.contains(search_query, na=False)]
         valid_p = valid_p_df['产品编号'].tolist()
 
-        # --- 6. 顶部财务汇总 ---
+        # --- 6. 顶部指标卡片 ---
         t_spent = product_totals['广告真实支出'].sum()
         t_sales = product_totals['销售额'].sum()
         t_clicks = product_totals['点击量'].sum()
@@ -141,10 +124,9 @@ if uploaded_files:
         col_p1, col_p2, col_p3 = st.columns(3)
         col_p1.metric("📊 广告产品总数", f"{total_skus} 款")
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
-        # --- 修复语法错误行 ---
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
 
-        # --- 7. 样式引擎 ---
+        # --- 7. 样式引擎 (修改点：黑色实线分割) ---
         unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
@@ -157,10 +139,14 @@ if uploaded_files:
             styles = []
             for col_name in row.index:
                 cell_style = f'background-color: {base_color}'
+                
+                # 1. 非搜行淡淡的灰色
                 if is_ns:
                     cell_style = 'background-color: #f2f2f2; color: #0056b3; font-weight: 500'
                 
+                # 2. 总计行样式 (修改：改为 2px 纯黑色实线分割)
                 if is_total:
+                    # 将 border-bottom 的 #555 改为 #000000 (黑色)
                     cell_style = 'background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc; border-bottom: 2px solid #000000'
                     if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
                         if row['真实ROAS'] >= row['目标指标']:
@@ -168,12 +154,14 @@ if uploaded_files:
                         else:
                             cell_style = 'background-color: #c62828; color: #ffffff; font-weight: bold; border-bottom: 2px solid #000000'
                 
+                # 3. 真实ROAS 达标/亏损变色
                 if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
                     if not is_total:
                         if row['真实ROAS'] >= row['目标指标']:
                             cell_style = 'background-color: #c6efce; color: #006100'
                         else:
                             cell_style = 'background-color: #ffc7ce; color: #9c0006'
+                
                 styles.append(cell_style)
             return styles
 
