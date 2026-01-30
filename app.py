@@ -183,23 +183,23 @@ if uploaded_files:
             p_sub['维度'], p_sub['支出占比'] = '📌 产品总计', 100.0
             t1_df = pd.concat([area_df, p_sub], ignore_index=True).sort_values(['产品编号', '维度'], ascending=[True, False])
             
+            # --- 列顺序调整：转化率 移动到 真实ROAS 后面 ---
             st.dataframe(t1_df.style.apply(lambda r: apply_lxu_style(r, True), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实CPC", "广告真实支出", "销售额", "点击率", "转化率"),
+                         column_order=("产品编号", "维度", "目标指标", "真实ROAS", "转化率", "支出占比", "展示量", "点击量", "真实CPC", "广告真实支出", "销售额", "点击率"),
                          column_config=common_config)
 
         with tab2:
             kw_f['sort_weight'] = kw_f['关键词'].apply(lambda x: 0 if '非搜索' in x else 1)
             det_sub = p_sub.rename(columns={'维度': '关键词'})
             det_sub['策略日期'], det_sub['sort_weight'] = 'TOTAL', 2
-            
-            # --- 修复点：将 sort_values 中的 '真实支出' 改为 '广告真实支出' ---
             t2_df = pd.concat([kw_f, det_sub], ignore_index=True).sort_values(['产品编号', 'sort_weight', '广告真实支出'], ascending=[True, True, False])
             t2_df['支出占比'] = t2_df.apply(lambda x: (x['广告真实支出']/p_spend_map[x['产品编号']]*100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
             
+            # --- 列顺序调整：转化率 移动到 真实ROAS 后面 ---
             st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "支出占比", "展示量", "点击量", "真实CPC", "广告真实支出", "销售额", "点击率", "转化率"),
+                         column_order=("产品编号", "维度", "关键词", "策略日期", "目标指标", "真实ROAS", "转化率", "支出占比", "展示量", "点击量", "真实CPC", "广告真实支出", "销售额", "点击率"),
                          column_config=common_config)
 
         # 9. Excel 导出
