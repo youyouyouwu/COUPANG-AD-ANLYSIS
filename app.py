@@ -126,7 +126,7 @@ if uploaded_files:
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
 
-        # --- 7. 样式引擎 (新增非搜行灰色背景) ---
+        # --- 7. 样式引擎 (新增产品间横线分割) ---
         unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
@@ -138,25 +138,25 @@ if uploaded_files:
             
             styles = []
             for col_name in row.index:
-                # 默认背景色（包含斑马纹）
                 cell_style = f'background-color: {base_color}'
                 
-                # 1. 非搜行整行淡淡的灰色
+                # 1. 非搜行淡淡的灰色
                 if is_ns:
                     cell_style = 'background-color: #f2f2f2; color: #0056b3; font-weight: 500'
                 
-                # 2. 总计行样式（优先级高于非搜灰）
+                # 2. 总计行样式 (含底部粗横线处理)
                 if is_total:
-                    cell_style = 'background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc'
+                    # 默认总计行浅绿 + 底部加粗横线
+                    cell_style = 'background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc; border-bottom: 2px solid #555'
                     if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
                         if row['真实ROAS'] >= row['目标指标']:
-                            cell_style = 'background-color: #2e7d32; color: #ffffff; font-weight: bold'
+                            cell_style = 'background-color: #2e7d32; color: #ffffff; font-weight: bold; border-bottom: 2px solid #555'
                         else:
-                            cell_style = 'background-color: #c62828; color: #ffffff; font-weight: bold'
+                            cell_style = 'background-color: #c62828; color: #ffffff; font-weight: bold; border-bottom: 2px solid #555'
                 
-                # 3. 真实ROAS 达标/亏损变色（优先级最高，覆盖背景色）
+                # 3. 真实ROAS 达标/亏损变色
                 if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
-                    if not is_total: # 非总计行
+                    if not is_total:
                         if row['真实ROAS'] >= row['目标指标']:
                             cell_style = 'background-color: #c6efce; color: #006100'
                         else:
@@ -210,7 +210,7 @@ if uploaded_files:
                          column_order=("产品编号", "维度", "支出占比", "广告真实支出", "关键词", "策略日期", "目标指标", "真实ROAS", "转化率", "点击率", "展示量", "点击量", "真实CPC", "销售额"),
                          column_config=common_config)
 
-        # 9. Excel 导出 (Excel 导出暂不处理灰色，保持基础样式)
+        # 9. Excel 导出
         def to_excel_final(df1, df2):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
