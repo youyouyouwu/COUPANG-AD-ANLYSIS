@@ -141,9 +141,10 @@ if uploaded_files:
         col_p1, col_p2, col_p3 = st.columns(3)
         col_p1.metric("📊 广告产品总数", f"{total_skus} 款")
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
-        col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f("-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
+        # --- 修复语法错误行 ---
+        col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
 
-        # --- 7. 样式引擎 (深灰色表头已由CSS处理，此处处理行逻辑) ---
+        # --- 7. 样式引擎 ---
         unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
@@ -160,7 +161,6 @@ if uploaded_files:
                     cell_style = 'background-color: #f2f2f2; color: #0056b3; font-weight: 500'
                 
                 if is_total:
-                    # 底部黑色分割线
                     cell_style = 'background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc; border-bottom: 2px solid #000000'
                     if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
                         if row['真实ROAS'] >= row['目标指标']:
