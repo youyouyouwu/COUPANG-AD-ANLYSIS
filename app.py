@@ -126,7 +126,7 @@ if uploaded_files:
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
 
-        # --- 7. 样式引擎 (新增产品间横线分割) ---
+        # --- 7. 样式引擎 (修改点：黑色实线分割) ---
         unique_p = product_totals['产品编号'].unique()
         p_color_map = {p: '#f9f9f9' if i % 2 == 0 else '#ffffff' for i, p in enumerate(unique_p)}
 
@@ -144,15 +144,15 @@ if uploaded_files:
                 if is_ns:
                     cell_style = 'background-color: #f2f2f2; color: #0056b3; font-weight: 500'
                 
-                # 2. 总计行样式 (含底部粗横线处理)
+                # 2. 总计行样式 (修改：改为 2px 纯黑色实线分割)
                 if is_total:
-                    # 默认总计行浅绿 + 底部加粗横线
-                    cell_style = 'background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc; border-bottom: 2px solid #555'
+                    # 将 border-bottom 的 #555 改为 #000000 (黑色)
+                    cell_style = 'background-color: #e8f4ea; font-weight: bold; border-top: 1px solid #ccc; border-bottom: 2px solid #000000'
                     if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
                         if row['真实ROAS'] >= row['目标指标']:
-                            cell_style = 'background-color: #2e7d32; color: #ffffff; font-weight: bold; border-bottom: 2px solid #555'
+                            cell_style = 'background-color: #2e7d32; color: #ffffff; font-weight: bold; border-bottom: 2px solid #000000'
                         else:
-                            cell_style = 'background-color: #c62828; color: #ffffff; font-weight: bold; border-bottom: 2px solid #555'
+                            cell_style = 'background-color: #c62828; color: #ffffff; font-weight: bold; border-bottom: 2px solid #000000'
                 
                 # 3. 真实ROAS 达标/亏损变色
                 if col_name == '真实ROAS' and row['目标指标'] > 0 and row['真实ROAS'] > 0:
