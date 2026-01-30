@@ -66,7 +66,7 @@ if uploaded_files:
         analysis_df.loc[mask_ns, '维度'] = '🤖 非搜索区域'
         analysis_df.loc[mask_ns, '策略日期'] = '汇总'
 
-        # 4. 指标计算 (改名点：广告真实支出)
+        # 4. 指标计算
         def calculate_metrics(df):
             df['展示量'] = df['展示量'].round(0).fillna(0).astype(int)
             df['点击量'] = df['点击量'].round(0).fillna(0).astype(int)
@@ -87,7 +87,21 @@ if uploaded_files:
         }).reset_index()
         product_totals = calculate_metrics(product_totals)
 
-        # --- 5. 顶部财务卡片 ---
+        # --- 5. 侧边栏功能区 ---
+        st.sidebar.header("🔍 数据筛选")
+        search_query = st.sidebar.text_input("按商品编码查询 (如: C0002)", "").strip().upper()
+        status_filter = st.sidebar.radio("选择显示范围：", ["全部", "盈利", "亏损"])
+        
+        valid_p_df = product_totals.copy()
+        if status_filter == "盈利":
+            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] >= valid_p_df['目标指标']]
+        elif status_filter == "亏损":
+            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] < valid_p_df['目标指标']]
+        if search_query:
+            valid_p_df = valid_p_df[valid_p_df['产品编号'].str.contains(search_query, na=False)]
+        valid_p = valid_p_df['产品编号'].tolist()
+
+        # --- 6. 顶部指标卡片 ---
         t_spent = product_totals['广告真实支出'].sum()
         t_sales = product_totals['销售额'].sum()
         t_clicks = product_totals['点击量'].sum()
@@ -111,20 +125,6 @@ if uploaded_files:
         col_p1.metric("📊 广告产品总数", f"{total_skus} 款")
         col_p2.metric("✅ 广告盈利 (达标)", f"{win_skus} 款", delta=f"{(win_skus/total_skus*100):.1f}%")
         col_p3.metric("❌ 广告亏损 (未达标)", f"{loss_skus} 款", delta=f"-{(loss_skus/total_skus*100):.1f}%", delta_color="inverse")
-
-        # --- 6. 侧边栏功能区 ---
-        st.sidebar.header("🔍 数据筛选")
-        search_query = st.sidebar.text_input("按商品编码查询 (如: C0002)", "").strip().upper()
-        status_filter = st.sidebar.radio("选择显示范围：", ["全部", "盈利", "亏损"])
-        
-        valid_p_df = product_totals.copy()
-        if status_filter == "盈利":
-            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] >= valid_p_df['目标指标']]
-        elif status_filter == "亏损":
-            valid_p_df = valid_p_df[valid_p_df['真实ROAS'] < valid_p_df['目标指标']]
-        if search_query:
-            valid_p_df = valid_p_df[valid_p_df['产品编号'].str.contains(search_query, na=False)]
-        valid_p = valid_p_df['产品编号'].tolist()
 
         # --- 7. 样式引擎 ---
         unique_p = product_totals['产品编号'].unique()
@@ -192,7 +192,9 @@ if uploaded_files:
             kw_f['sort_weight'] = kw_f['关键词'].apply(lambda x: 0 if '非搜索' in x else 1)
             det_sub = p_sub.rename(columns={'维度': '关键词'})
             det_sub['策略日期'], det_sub['sort_weight'] = 'TOTAL', 2
-            t2_df = pd.concat([kw_f, det_sub], ignore_index=True).sort_values(['产品编号', 'sort_weight', '真实支出'], ascending=[True, True, False])
+            
+            # --- 修复点：将 sort_values 中的 '真实支出' 改为 '广告真实支出' ---
+            t2_df = pd.concat([kw_f, det_sub], ignore_index=True).sort_values(['产品编号', 'sort_weight', '广告真实支出'], ascending=[True, True, False])
             t2_df['支出占比'] = t2_df.apply(lambda x: (x['广告真实支出']/p_spend_map[x['产品编号']]*100) if x['sort_weight'] != 2 else 100.0, axis=1).round(1)
             
             st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
