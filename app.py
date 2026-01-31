@@ -87,12 +87,12 @@ if uploaded_files:
         def calculate_metrics(df):
             df['展示量'] = df['展示量'].round(0).fillna(0).astype(int)
             df['点击量'] = df['点击量'].round(0).fillna(0).astype(int)
-            df['销量'] = df['销量'].round(0).fillna(0).astype(int) # 确保销量为整数
+            df['广告销量'] = df['销量'].round(0).fillna(0).astype(int) # 改名点：广告销量
             df['广告真实支出'] = (df['原支出'] * 1.1).round(0).fillna(0).astype(int)
             df['真实ROAS'] = (df['销售额'] / df['广告真实支出'] * 100).round(2)
             df['真实CPC'] = (df['广告真实支出'] / df['点击量']).round(0).fillna(0).astype(int)
             df['点击率'] = (df['点击量'] / df['展示量'] * 100).round(2)
-            df['转化率'] = (df['销量'] / df['点击量'] * 100).round(2)
+            df['转化率'] = (df['广告销量'] / df['点击量'] * 100).round(2)
             return df.replace([float('inf'), -float('inf')], 0).fillna(0)
 
         kw_summary = analysis_df.groupby(['产品编号', '维度', '关键词', '目标指标', '策略日期']).agg({
@@ -136,7 +136,7 @@ if uploaded_files:
         col_f3.metric("📈 ROAS", f"{(t_sales/t_spent*100):.2f}%" if t_spent>0 else "0%")
         col_f4.metric("🖱️ CPC", f"₩{(t_spent/t_clicks):.0f}" if t_clicks>0 else "0")
         col_f5.metric("🎯 点击率", f"{(t_clicks/t_views*100):.2f}%" if t_views>0 else "0%")
-        col_f6.metric("🛒 转化率", f"{(product_totals['销量'].sum()/t_clicks*100):.2f}%" if t_clicks>0 else "0%")
+        col_f6.metric("🛒 转化率", f"{(product_totals['广告销量'].sum()/t_clicks*100):.2f}%" if t_clicks>0 else "0%")
 
         st.subheader("📦 产品盈亏分布")
         col_p1, col_p2, col_p3 = st.columns(3)
@@ -186,7 +186,7 @@ if uploaded_files:
         common_config = {
             "展示量": st.column_config.NumberColumn(format="%d"),
             "点击量": st.column_config.NumberColumn(format="%d"),
-            "销量": st.column_config.NumberColumn(format="%d"),
+            "广告销量": st.column_config.NumberColumn(format="%d"),
             "真实ROAS": st.column_config.NumberColumn(format="%.2f%%"),
             "目标指标": st.column_config.NumberColumn(format="%d%%"),
             "支出占比": st.column_config.NumberColumn(format="%.1f%%"),
@@ -208,7 +208,7 @@ if uploaded_files:
             
             st.dataframe(t1_df.style.apply(lambda r: apply_lxu_style(r, True), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "支出占比", "广告真实支出", "目标指标", "真实ROAS", "转化率", "点击率", "展示量", "点击量", "真实CPC", "销售额", "销量"),
+                         column_order=("产品编号", "维度", "支出占比", "广告真实支出", "目标指标", "真实ROAS", "转化率", "点击率", "展示量", "点击量", "真实CPC", "销售额", "广告销量"),
                          column_config=common_config)
 
         with tab2:
@@ -220,7 +220,7 @@ if uploaded_files:
             
             st.dataframe(t2_df.style.apply(lambda r: apply_lxu_style(r, False), axis=1), 
                          use_container_width=True, hide_index=True, height=1000,
-                         column_order=("产品编号", "维度", "支出占比", "广告真实支出", "关键词", "策略日期", "目标指标", "真实ROAS", "转化率", "点击率", "展示量", "点击量", "真实CPC", "销售额", "销量"),
+                         column_order=("产品编号", "维度", "支出占比", "广告真实支出", "关键词", "策略日期", "目标指标", "真实ROAS", "转化率", "点击率", "展示量", "点击量", "真实CPC", "销售额", "广告销量"),
                          column_config=common_config)
 
         # 9. Excel 导出
